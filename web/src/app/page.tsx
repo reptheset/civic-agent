@@ -446,6 +446,8 @@ export default function Home() {
     failed: events.filter((e) => e.type === "verify" && e.data?.ok === false).length,
     recoveries: events.filter((e) => e.type === "recover").length,
     security: events.filter((e) => e.type === "security").length,
+    modelPlans: events.filter((e) => e.type === "decide" && e.data?.source === "model").length,
+    replays: events.filter((e) => e.type === "decide" && e.data?.source === "skill").length,
   }), [events]);
   const receipt = events.find((e) => e.type === "receipt")?.data;
   const finished = events.find((e) => e.type === "done" || e.message.startsWith("Workflow error"));
@@ -500,7 +502,8 @@ export default function Home() {
           <Card title="Live counters">
             <div className="grid grid-cols-2 gap-2 text-center">
               {[["Actions", stats.actions, "text-slate-900"], ["Failed checks", stats.failed, "text-red-600"],
-                ["Recoveries", stats.recoveries, "text-amber-600"], ["Security events", stats.security, "text-rose-600"]]
+                ["Recoveries", stats.recoveries, "text-amber-600"], ["Security events", stats.security, "text-rose-600"],
+                ["Model plans", stats.modelPlans, "text-sky-600"], ["Learned replays", stats.replays, "text-emerald-600"]]
                 .map(([label, n, cls]) => (
                   <div key={label as string} className="rounded bg-slate-50 p-2">
                     <div className={`text-2xl font-bold ${cls}`}>{n as number}</div>

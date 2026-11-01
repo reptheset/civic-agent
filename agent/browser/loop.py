@@ -13,7 +13,8 @@ from agent.browser.observe import observe
 from agent.config import ALLOWED_HOSTS, SCREENSHOT_DIR
 from agent.ledger import BadReference, MissingProvenance
 from agent.llm import LLMUnavailable
-from agent.state import Action, StepLog
+from agent.skills import match_plan
+from agent.state import Action, ActionPlan, StepLog
 
 HUMAN_FIELD = re.compile(r"\botp\b|one[- ]time|captcha|password|verification code", re.I)
 
@@ -71,9 +72,10 @@ async def act_with_recovery(page, action: Action, obs: dict, profile, documents,
 
 async def run_browser_task(page, *, goal: str, profile: dict, documents: list, run_id: str,
                            start_url: str | None = None, emit=None, max_rounds: int = 25,
-                           allow_final_submit: bool = False, history: list | None = None) -> dict:
-    """Each round: observe once, get a plan for the page from one model call, execute it
-    action by action with verification. Re-plan when the page changes or an action fails."""
+                           allow_final_submit: bool = False, history: list | None = None,
+                           skill: dict | None = None) -> dict:
+    """Each round: observe once; replay a learned plan if the page matches, else ask the model;
+    execute action by action with verification; re-plan when the page changes or an action fails."""
     history = history if history is not None else []
     shots = SCREENSHOT_DIR / run_id
     shots.mkdir(parents=True, exist_ok=True)
@@ -82,6 +84,7 @@ async def run_browser_task(page, *, goal: str, profile: dict, documents: list, r
 
     failures = 0
     flagged_urls = set()
+    skill_failed = set()
     for _ in range(max_rounds):
         host = urlparse(page.url).hostname
         if host not in ALLOWED_HOSTS:
@@ -101,15 +104,31 @@ async def run_browser_task(page, *, goal: str, profile: dict, documents: list, r
         if reason:
             return {"status": "needs_human", "reason": reason, "url": page.url, "history": history}
 
-        try:
-            plan = await asyncio.to_thread(decide, goal, obs, profile, documents, history)
-        except LLMUnavailable as e:
-            await _emit(emit, "error", f"Model unavailable: {e}")
-            return {"status": "failed", "reason": "model unavailable", "url": page.url, "history": history}
+        path_now = urlparse(obs["url"]).path or "/"
+        plan, source = None, "model"
+        usable = bool(skill) and not obs["alerts"] and not obs["dialogs"] and path_now not in skill_failed
+        if usable and not allow_final_submit and skill.get("stop_path") == path_now:
+            await _emit(emit, "decide", f"Reached the learned stopping point (skill v{skill['version']}), no model call",
+                        source="skill")
+            return {"status": "done", "reason": "learned stopping point", "url": page.url, "history": history}
+        if usable:
+            learned = match_plan(skill, obs)
+            if learned:
+                plan, source = ActionPlan(actions=learned,
+                                          reason=f"Replaying learned skill v{skill['version']}, no model call"), "skill"
+            elif path_now in skill.get("pages", {}):
+                await _emit(emit, "recover", "Learned steps no longer match this page; asking the model (self-healing)")
+
+        if plan is None:
+            try:
+                plan = await asyncio.to_thread(decide, goal, obs, profile, documents, history)
+            except LLMUnavailable as e:
+                await _emit(emit, "error", f"Model unavailable: {e}")
+                return {"status": "failed", "reason": "model unavailable", "url": page.url, "history": history}
 
         actions = plan.actions[:12] or [Action(type="done", reason=plan.reason or "goal reached")]
         await _emit(emit, "decide", f"Plan with {len(actions)} action(s): {plan.reason}",
-                    plan=[a.model_dump() for a in actions])
+                    plan=[a.model_dump() for a in actions], source=source)
         if actions[0].type == "done":
             return {"status": "done", "reason": actions[0].reason, "url": page.url, "history": history}
         if actions[0].type == "need_info":
@@ -121,8 +140,10 @@ async def run_browser_task(page, *, goal: str, profile: dict, documents: list, r
 
         for action in actions:
             if action.type in ("done", "ask_human", "need_info"):
-                break                       # handled on the next round, after re-observing
+                break
             step = len(history) + 1
+            el0 = next((e for e in obs["elements"] if e["id"] == action.element_id), None)
+            target = {"tag": el0["tag"], "type": el0.get("type", ""), "label": el0["label"]} if el0 else None
             await _emit(emit, "act", f"{action.type} el={action.element_id} ref={action.value_ref} - {action.reason}")
             try:
                 ok, note, rung = await act_with_recovery(page, action, obs, profile, documents, emit,
@@ -137,13 +158,18 @@ async def run_browser_task(page, *, goal: str, profile: dict, documents: list, r
                 shot = None
             history.append(StepLog(step=step, url=page.url, action=action, ok=ok, verify_note=note,
                                    recovery_rung=rung, screenshot=str(shot) if shot else None).model_dump())
-            await _emit(emit, "verify", f"{'OK' if ok else 'FAILED'}: {note}", ok=ok, rung=rung, shot=f"{run_id}/{step:03d}.png" if shot else None)
+            history[-1]["page_path"] = path_now
+            history[-1]["target"] = target
+            await _emit(emit, "verify", f"{'OK' if ok else 'FAILED'}: {note}", ok=ok, rung=rung,
+                        shot=f"{run_id}/{step:03d}.png" if shot else None)
 
             failures = 0 if ok else failures + 1
             if not ok:
+                if source == "skill":
+                    skill_failed.add(path_now)
                 await _emit(emit, "recover", f"Rung 3: re-planning after a failed check ({note[:120]})")
             if not ok or action.type == "click":
-                break                       # page changed or something failed: re-observe and re-plan
+                break
 
         if failures == 4:
             await _emit(emit, "recover", "Rung 4: 4 failures in a row, reloading the page")

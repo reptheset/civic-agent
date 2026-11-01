@@ -19,6 +19,7 @@ from agent.config import MIN_AUTO_CONFIDENCE, RECEIPT_DIR
 from agent.documents import build_profile, read_document
 from agent.eligibility import SCHEMES, evaluate, extract_rules, fetch_guideline
 from agent.evidence import build_evidence_pdf
+from agent.skills import learn, load_skill
 from agent.ledger import FORMATS
 from agent.llm import LLMUnavailable, generate_json
 from agent.runtime import browsers, bus
@@ -167,12 +168,17 @@ async def _run_browser(state: RunState, goal: str, allow_submit: bool):
     history = list(old)
     result = await run_browser_task(page, goal=goal, profile=state["profile"], documents=state["documents"],
                                     run_id=run_id, start_url=start, emit=_emitter(run_id),
-                                    allow_final_submit=allow_submit, history=history)
+                                    allow_final_submit=allow_submit, history=history,
+                                    skill=load_skill(state["portal_url"]))
     return result, history[len(old):]
 
 
 async def fill(state: RunState):
     await bus.publish(state["run_id"], "node", "Filling the application form")
+    sk = load_skill(state["portal_url"])
+    if sk and not state.get("step_log"):
+        await bus.publish(state["run_id"], "log", f"Learned skill v{sk['version']} found for this portal "
+                          f"({len(sk['pages'])} pages); replaying wherever pages still match")
     result, new_steps = await _run_browser(state, FILL_GOAL, allow_submit=False)
     return {"phase": "fill", "status": result["status"], "error": result["reason"], "step_log": new_steps}
 
@@ -297,6 +303,11 @@ async def receipt(state: RunState):
         "steps_taken": len(state.get("step_log", [])), "review_rows": state.get("review_rows", []),
         "eligibility_verdict": state.get("verdict"), "guideline": state.get("guideline", {}),
     }
+    skill = learn(state["portal_url"], state.get("step_log", []))
+    if skill:
+        rec["skill_version"] = skill["version"]
+        await bus.publish(run_id, "log", f"Learned skill saved: v{skill['version']} covering "
+                          f"{len(skill['pages'])} page(s)")
     rec["review_unverified"] = _unverified_rows(rec["review_rows"], state["profile"])
     try:
         pdf, pdf_hash = build_evidence_pdf(rec, state)
