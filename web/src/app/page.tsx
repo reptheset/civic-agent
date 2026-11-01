@@ -761,9 +761,6 @@ export default function Home() {
             {finished && !receipt && <Card title={t("finished")}><p className="text-sm">{finished.message}</p></Card>}
           </section>
         </div>
-        <footer className="pb-6 pt-2 text-center text-sm text-slate-500">
-          Made with ❤️ by Ashu &amp; Aviral
-        </footer>
       </main>
     </RunCtx.Provider>
     </LangCtx.Provider>
