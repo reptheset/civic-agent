@@ -29,6 +29,7 @@ FORMATS = {
     "dd-mm-yyyy": lambda v: _iso(v).strftime("%d-%m-%Y"),
     "yyyy-mm-dd": lambda v: _iso(v).strftime("%Y-%m-%d"),
     "digits": lambda v: re.sub(r"\D", "", v),
+    "mobile10": lambda v: re.sub(r"\D", "", v)[-10:],
     "upper": str.upper,
     "lower": str.lower,
 }

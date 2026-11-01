@@ -138,6 +138,8 @@ async def run_browser_task(page, *, goal: str, profile: dict, documents: list, r
             await _emit(emit, "verify", f"{'OK' if ok else 'FAILED'}: {note}", ok=ok, rung=rung)
 
             failures = 0 if ok else failures + 1
+            if not ok:
+                await _emit(emit, "recover", f"Rung 3: re-planning after a failed check ({note[:120]})")
             if not ok or action.type == "click":
                 break                       # page changed or something failed: re-observe and re-plan
 
