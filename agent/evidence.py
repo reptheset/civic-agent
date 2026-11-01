@@ -6,7 +6,7 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import Image, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from agent.config import RECEIPT_DIR
 
@@ -90,6 +90,18 @@ def build_evidence_pdf(rec: dict, state: dict) -> tuple[str, str]:
                            f"re-observation and re-planning; {retried} actions needed a retry. "
                            f"Final submission happened only after explicit user approval."), small),
               Spacer(1, 2 * mm)]
+    rel = rec.get("reliability") or {}
+    if rel:
+        story += [KeepTogether(table([["Reliability measure (from the execution log)", "Value"],
+                         ["Actions verified after execution",
+                          f"{rel.get('verified_actions')}/{rel.get('actions')} ({rel.get('verification_rate')}%)"],
+                         ["Form fields read back and confirmed", f"{rel.get('fields_verified')}/{rel.get('field_checks')}"],
+                         ["Failed checks (each re-observed and re-planned)", rel.get("failed_checks")],
+                         ["Actions that needed a retry", rel.get("retried_actions")],
+                         ["Plans made by the model / learned replays",
+                          f"{rel.get('model_plans')} / {rel.get('learned_replays')}"],
+                         ["Final Submit clicks (duplicate protection: max 1)", rel.get("final_submit_clicks")]],
+                        [110 * mm, 60 * mm])), Spacer(1, 3 * mm)]
     rows = [["#", "Action", "Reference", "Result"]]
     for s in steps:
         a = s.get("action", {})

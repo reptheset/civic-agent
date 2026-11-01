@@ -1,5 +1,6 @@
 """Executes one action with Playwright, then verifies it actually worked."""
 import re
+import time
 
 from agent.ledger import resolve_file_ref, resolve_value_ref
 from agent.state import Action
@@ -13,6 +14,10 @@ class ActionBlocked(Exception):
     """The action is not allowed or not possible as specified. Retrying will not help."""
 
 
+class DuplicateSubmit(ActionBlocked):
+    """Final Submit was already clicked once for this run (recorded on disk, survives crashes)."""
+
+
 def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", s or "").strip().lower()
 
@@ -22,7 +27,7 @@ def _element(obs: dict, element_id):
 
 
 async def execute(page, action: Action, obs: dict, profile: dict, documents: list,
-                  allow_final_submit: bool = False, keyboard: bool = False):
+                  allow_final_submit: bool = False, keyboard: bool = False, submit_marker=None):
     """Performs the action. Returns the expected value (for verification) or None."""
     if action.type == "wait":
         await page.wait_for_timeout(1500)
@@ -66,10 +71,18 @@ async def execute(page, action: Action, obs: dict, profile: dict, documents: lis
                 "e => (e.innerText || e.value || e.getAttribute('aria-label') || '').trim()", timeout=2000)
         except Exception:
             raise ActionBlocked(f"Element {action.element_id} is no longer on the page; re-observing")
-        if (FINAL_SUBMIT.search(el["label"]) or FINAL_SUBMIT.search(live)) and not allow_final_submit:
+        is_final = bool(FINAL_SUBMIT.search(el["label"]) or FINAL_SUBMIT.search(live))
+        if is_final and not allow_final_submit:
             raise ActionBlocked("Final submission requires the user's explicit approval")
         if _norm(live)[:40] != _norm(el["label"])[:40]:
             raise ActionBlocked("Element changed since the page was observed; re-observing")
+        if is_final and submit_marker is not None:
+            # Idempotency: written to disk BEFORE the click, so even a crash or timeout right after
+            # the click can never lead to a second submission for this run.
+            if submit_marker.exists():
+                raise DuplicateSubmit("Duplicate protection: Final Submit was already clicked once for this run "
+                                      f"(at {submit_marker.read_text().strip()}). Not clicking it again.")
+            submit_marker.write_text(time.strftime("%Y-%m-%d %H:%M:%S"))
         await loc.click(timeout=TIMEOUT)
         try:
             await page.wait_for_load_state("domcontentloaded", timeout=10_000)

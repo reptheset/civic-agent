@@ -7,10 +7,10 @@ import asyncio
 import re
 from urllib.parse import urlparse
 
-from agent.browser.actions import ActionBlocked, execute, verify_click, verify_field
+from agent.browser.actions import FINAL_SUBMIT, ActionBlocked, execute, verify_click, verify_field
 from agent.browser.decide import build_prompt, decide
 from agent.browser.observe import observe
-from agent.config import ALLOWED_HOSTS, SCREENSHOT_DIR
+from agent.config import ALLOWED_HOSTS, RECEIPT_DIR, SCREENSHOT_DIR
 from agent.ledger import BadReference, MissingProvenance
 from agent.llm import LLMUnavailable
 from agent.skills import match_plan
@@ -35,7 +35,7 @@ def human_step_needed(obs: dict):
 
 
 async def act_with_recovery(page, action: Action, obs: dict, profile, documents, emit,
-                            allow_final_submit: bool) -> tuple[bool, str, int]:
+                            allow_final_submit: bool, submit_marker=None) -> tuple[bool, str, int]:
     """Rungs 1-2 happen here. Rung 3 (re-plan) happens when the failure note reaches the LLM."""
     last_error = ""
     for rung in (0, 1, 2):
@@ -51,7 +51,7 @@ async def act_with_recovery(page, action: Action, obs: dict, profile, documents,
                     break
                 await _emit(emit, "recover", "Rung 2: typing with the keyboard instead")
             expected = await execute(page, action, obs, profile, documents,
-                                     allow_final_submit, keyboard=(rung == 2))
+                                     allow_final_submit, keyboard=(rung == 2), submit_marker=submit_marker)
             if action.type == "click":
                 after = await observe(page)
                 ok, note = verify_click(obs, after)
@@ -82,6 +82,7 @@ async def run_browser_task(page, *, goal: str, profile: dict, documents: list, r
     if start_url:
         await page.goto(start_url, wait_until="domcontentloaded")
 
+    submit_marker = RECEIPT_DIR / f"{run_id}.final_submit" if allow_final_submit else None
     failures = 0
     flagged_urls = set()
     skill_failed = set()
@@ -105,6 +106,7 @@ async def run_browser_task(page, *, goal: str, profile: dict, documents: list, r
             return {"status": "needs_human", "reason": reason, "url": page.url, "history": history}
 
         path_now = urlparse(obs["url"]).path or "/"
+        plan_key = len(history)          # identifies this plan in the log (for reliability metrics)
         plan, source = None, "model"
         usable = bool(skill) and not obs["alerts"] and not obs["dialogs"] and path_now not in skill_failed
         if usable and not allow_final_submit and skill.get("stop_path") == path_now:
@@ -148,7 +150,7 @@ async def run_browser_task(page, *, goal: str, profile: dict, documents: list, r
             await _emit(emit, "act", f"{action.type} el={action.element_id} ref={action.value_ref} - {action.reason}")
             try:
                 ok, note, rung = await act_with_recovery(page, action, obs, profile, documents, emit,
-                                                         allow_final_submit)
+                                                         allow_final_submit, submit_marker)
             except MissingProvenance as e:
                 return {"status": "needs_info", "reason": str(e), "url": page.url, "history": history}
 
@@ -161,8 +163,19 @@ async def run_browser_task(page, *, goal: str, profile: dict, documents: list, r
                                    recovery_rung=rung, screenshot=str(shot) if shot else None).model_dump())
             history[-1]["page_path"] = path_now
             history[-1]["target"] = target
+            history[-1]["source"] = source
+            history[-1]["plan_key"] = plan_key
             await _emit(emit, "verify", f"{'OK' if ok else 'FAILED'}: {note}", ok=ok, rung=rung,
                         shot=f"{run_id}/{step:03d}.png" if shot else None)
+
+            if note.startswith("Duplicate protection"):
+                await _emit(emit, "security", note + " Check the application status on the portal before "
+                            "doing anything else.")
+                return {"status": "already_submitted", "reason": note, "url": page.url, "history": history}
+            is_final = bool(target and FINAL_SUBMIT.search(target["label"]))
+            if is_final and not ok and note.startswith("page reported") and submit_marker and submit_marker.exists():
+                submit_marker.unlink()     # the portal explicitly rejected it, so nothing was submitted
+                await _emit(emit, "log", "The portal rejected the submission; it can be tried again after fixing it")
 
             failures = 0 if ok else failures + 1
             if not ok:

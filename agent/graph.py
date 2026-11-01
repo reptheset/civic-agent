@@ -13,6 +13,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 from pydantic import BaseModel
 
+from agent.browser.actions import FINAL_SUBMIT
 from agent.browser.decide import redact
 from agent.browser.loop import run_browser_task
 from agent.config import MIN_AUTO_CONFIDENCE, RECEIPT_DIR
@@ -281,6 +282,28 @@ async def approval(state: RunState):
     return {"status": "approved" if approved else "cancelled"}
 
 
+def reliability(step_log: list) -> dict:
+    """Measured from the verified execution log, not estimated."""
+    steps = step_log or []
+    field = [s for s in steps if (s.get("action") or {}).get("type") in ("fill", "select", "check", "upload")]
+    model_plans = {s.get("plan_key") for s in steps if s.get("source") == "model"}
+    replays = {s.get("plan_key") for s in steps if s.get("source") == "skill"}
+    ok = sum(1 for s in steps if s.get("ok"))
+    return {
+        "actions": len(steps),
+        "verified_actions": ok,
+        "verification_rate": round(100 * ok / len(steps), 1) if steps else 0.0,
+        "field_checks": len(field),
+        "fields_verified": sum(1 for s in field if s.get("ok")),
+        "failed_checks": len(steps) - ok,
+        "retried_actions": sum(1 for s in steps if (s.get("recovery_rung") or 0) > 0),
+        "model_plans": len(model_plans),
+        "learned_replays": len(replays),
+        "final_submit_clicks": sum(1 for s in steps if s.get("target") and FINAL_SUBMIT.search(s["target"]["label"])
+                                   and s.get("ok")),
+    }
+
+
 class AckExtract(BaseModel):
     application_id: str
     status: str = ""
@@ -317,6 +340,7 @@ async def receipt(state: RunState):
         "captured_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "steps_taken": len(state.get("step_log", [])), "review_rows": state.get("review_rows", []),
         "eligibility_verdict": state.get("verdict"), "guideline": state.get("guideline", {}),
+        "reliability": reliability(state.get("step_log", [])),
     }
     skill = learn(state["portal_url"], state.get("step_log", []))
     if skill:
@@ -344,6 +368,8 @@ def after_gate(state: RunState):
 
 def after_browser(state: RunState):
     s = state["status"]
+    if s == "already_submitted":
+        return END
     if s == "done":
         return "prepare_approval" if state["phase"] == "fill" else "receipt"
     if s == "needs_human":

@@ -217,8 +217,9 @@ function Eligibility({ data, onRespond }: { data: any; onRespond: (v: any) => vo
         </div>
       )}
       <p className="text-xs text-slate-500">
-        {t("rules_from")} <a href={g.url} target="_blank" rel="noreferrer" className="underline">{g.url}</a> · {g.fetched_at}.{" "}
-        {t("quote_checked")}
+        {t("rules_from")} <a href={g.url} target="_blank" rel="noreferrer" className="underline">{g.url}</a> · {g.fetched_at}
+        {g.sha256 && <> · SHA-256 <span className="font-mono">{g.sha256.slice(0, 12)}…</span></>}.{" "}
+        {t("fresh_note")} {t("quote_checked")}
       </p>
       <ul className="space-y-2">
         {results.map((r: any, i: number) => {
@@ -359,6 +360,14 @@ function ReceiptCard({ r, track, onTrack, tracking }: { r: any; track?: any; onT
         <dt className="text-slate-500">{t("captured")}</dt><dd className="col-span-2">{r.captured_at}</dd>
         <dt className="text-slate-500">{t("steps")}</dt><dd className="col-span-2">{r.steps_taken}</dd>
         <dt className="text-slate-500">{t("eligibility_l")}</dt><dd className="col-span-2">{r.eligibility_verdict}</dd>
+        {r.reliability && <>
+          <dt className="text-slate-500">{t("verified_actions")}</dt>
+          <dd className="col-span-2">{r.reliability.verified_actions}/{r.reliability.actions} ({r.reliability.verification_rate}%) · {t("fields_l")} {r.reliability.fields_verified}/{r.reliability.field_checks}</dd>
+          <dt className="text-slate-500">{t("plans_replays")}</dt>
+          <dd className="col-span-2">{r.reliability.model_plans} / {r.reliability.learned_replays}</dd>
+          <dt className="text-slate-500">{t("submit_clicks")}</dt>
+          <dd className="col-span-2">{r.reliability.final_submit_clicks} {t("submit_clicks_note")}</dd>
+        </>}
         <dt className="text-slate-500">{t("hash")}</dt><dd className="col-span-2 break-all font-mono">{r.screenshot_sha256?.slice(0, 32)}…</dd>
       </dl>
       <a href={`${API}/receipts/${r.run_id}_ack.png`} target="_blank" rel="noreferrer">
