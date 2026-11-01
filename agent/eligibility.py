@@ -71,6 +71,13 @@ async def fetch_guideline(browser, url: str) -> dict:
     page = await ctx.new_page()
     try:
         await page.goto(url, wait_until="networkidle", timeout=45_000)
+        for _ in range(8):          # some official pages load lower sections (e.g. documents) only on scroll
+            await page.mouse.wheel(0, 2500)
+            await page.wait_for_timeout(400)
+        try:
+            await page.wait_for_load_state("networkidle", timeout=5_000)
+        except Exception:
+            pass
         text = await page.inner_text("body")
     finally:
         await ctx.close()
