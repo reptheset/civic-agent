@@ -1,4 +1,5 @@
 """All Gemini calls go through here: one timeout, one retry policy, one model."""
+import re
 import time
 from typing import Optional, TypeVar
 from google import genai
@@ -13,15 +14,25 @@ client = genai.Client(
 )
 
 T = TypeVar("T", bound=BaseModel)
+MAX_RATE_LIMIT_WAIT = 45
 
 
 class LLMUnavailable(Exception):
     """Gemini failed after all retries. Callers decide how to degrade."""
 
 
+def _rate_limit_delay(err: Exception) -> Optional[float]:
+    """If this is a 429, return how long Google asks us to wait."""
+    s = str(err)
+    if "429" not in s and "RESOURCE_EXHAUSTED" not in s:
+        return None
+    m = re.search(r"retryDelay['\"]?\s*:\s*['\"]?(\d+)", s)
+    return float(m.group(1)) if m else 20.0
+
+
 def generate(contents, *, tools: Optional[list] = None,
              schema: Optional[type[BaseModel]] = None,
-             system: Optional[str] = None, retries: int = 2):
+             system: Optional[str] = None, retries: int = 3):
     config = types.GenerateContentConfig(
         temperature=0,
         system_instruction=system,
@@ -34,9 +45,16 @@ def generate(contents, *, tools: Optional[list] = None,
         try:
             return client.models.generate_content(
                 model=GEMINI_MODEL, contents=contents, config=config)
-        except Exception as e:      # timeouts, 5xx, rate limits
+        except Exception as e:
             last_error = e
-            time.sleep(1.5 * (attempt + 1))
+            if attempt == retries:
+                break
+            delay = _rate_limit_delay(e)
+            if delay is not None:
+                print(f"[llm     ] rate limited, waiting {min(delay + 1, MAX_RATE_LIMIT_WAIT):.0f}s")
+                time.sleep(min(delay + 1, MAX_RATE_LIMIT_WAIT))
+            else:
+                time.sleep(1.5 * (attempt + 1))
     raise LLMUnavailable(str(last_error)[:300])
 
 

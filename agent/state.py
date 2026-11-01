@@ -79,7 +79,7 @@ class StepLog(BaseModel):
 class AgentEvent(BaseModel):
     run_id: str
     type: Literal["node", "observe", "decide", "act", "verify", "recover",
-                  "interrupt", "log", "error", "receipt", "done"]
+                  "interrupt", "log", "error", "receipt", "done", "security"]
     message: str
     data: dict = Field(default_factory=dict)
     ts: float = Field(default_factory=time.time)
@@ -102,3 +102,9 @@ class RunState(TypedDict, total=False):
     status: str
     receipt: Optional[dict]
     error: Optional[str]
+
+
+class ActionPlan(BaseModel):
+    """All actions for the current page; a click (if any) must be the last one."""
+    actions: list[Action]
+    reason: str = ""
