@@ -538,10 +538,15 @@ export default function Home() {
   const [recoverId, setRecoverId] = useState("");
   const [tracking, setTracking] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
-  const feedEnd = useRef<HTMLDivElement | null>(null);
+  const feedBox = useRef<HTMLDivElement | null>(null);
+  const stickToBottom = useRef(true);   // follow new events only while the reader is at the bottom of the feed
   const t = (k: string) => STR[lang][k] ?? STR.en[k] ?? k;
 
-  useEffect(() => { feedEnd.current?.scrollIntoView({ behavior: "smooth" }); }, [events.length]);
+  // Scroll ONLY the activity feed (never the page), and only if the reader has not scrolled up in it.
+  useEffect(() => {
+    const el = feedBox.current;
+    if (el && stickToBottom.current) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, [events.length]);
   useEffect(() => () => wsRef.current?.close(), []);
 
   function connect(id: string) {
@@ -739,10 +744,12 @@ export default function Home() {
           <section className="lg:col-span-5">
             <Card title={t("activity")}>
               {t("activity_note") && <p className="-mt-2 mb-2 text-xs text-slate-400">{t("activity_note")}</p>}
-              <div className="h-[calc(100vh-190px)] space-y-1.5 overflow-y-auto pr-1">
+              <div ref={feedBox} onScroll={(e) => {
+                  const el = e.currentTarget;
+                  stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+                }} className="h-[calc(100vh-190px)] space-y-1.5 overflow-y-auto pr-1">
                 {events.length === 0 && <p className="text-sm text-slate-500">{t("activity_empty")}</p>}
                 {events.map((e, i) => <EventRow key={i} ev={e} t0={events[0]?.ts} />)}
-                <div ref={feedEnd} />
               </div>
             </Card>
           </section>
