@@ -41,7 +41,7 @@ class Mismatch(BaseModel):
 
 class EligibilityRule(BaseModel):
     field: str
-    op: Literal["<=", "<", ">=", ">", "==", "!=", "in"]
+    op: Literal["<=", "<", ">=", ">", "==", "!=", "in", "not_in"]
     value: str               # numbers kept as text; "in" uses comma-separated options
     quote: str               # exact sentence from the official source
     source_url: str

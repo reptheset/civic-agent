@@ -19,15 +19,18 @@ PAGES = {
          "options": ["B.Tech", "B.E.", "B.Sc", "B.Com", "B.A.", "M.Tech", "Other"]},
         {"name": "current_year", "label": "Current Year of Study", "type": "select", "required": True,
          "options": ["1", "2", "3", "4", "5"]},
-        {"name": "last_exam_percentage", "label": "Percentage in Last Qualifying Exam", "type": "text",
+        {"name": "class12_percentage", "label": "Class 12 Percentage", "type": "text",
          "required": True, "pattern": r"^\d{1,3}(\.\d{1,2})?$",
-         "pattern_msg": "Enter percentage as a number, e.g. 78.40"},
+         "pattern_msg": "Enter percentage as a number with at most 2 decimals, e.g. 78.40"},
         {"name": "family_income", "label": "Annual Family Income (in Rs.)", "type": "text", "required": True,
          "pattern": r"^\d+$", "pattern_msg": "Income must be digits only, without commas"},
     ]},
     3: {"title": "Upload Documents", "fields": [
-        {"name": "income_certificate", "label": "Income Certificate (PDF/JPG)", "type": "file", "required": True},
-        {"name": "marksheet", "label": "Last Exam Marksheet (PDF/JPG)", "type": "file", "required": True},
+        {"name": "class12_marksheet", "label": "Class 12 Marksheet (PDF/JPG)", "type": "file", "required": True},
+        {"name": "class10_document", "label": "Class 10 Marksheet or Certificate (PDF/JPG)", "type": "file",
+         "required": True},
+        {"name": "income_declaration", "label": "Income Certificate or Self-Declaration (PDF/JPG, if available)",
+         "type": "file", "required": False},
     ]},
 }
 
@@ -37,7 +40,7 @@ DRIFT_LABELS = {
     "father_name": "Name of Father/Guardian",
     "dob": "D.O.B. (dd/mm/yyyy)",
     "institution": "College / University",
-    "last_exam_percentage": "Marks % (previous exam)",
+    "class12_percentage": "Marks % (Class XII)",
     "family_income": "Gross Annual Household Income (Rs.)",
 }
 

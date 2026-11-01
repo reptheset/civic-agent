@@ -39,7 +39,7 @@ RULE_FIELDS = {
 
 class ExtractedRule(BaseModel):
     field: str
-    op: Literal["<=", "<", ">=", ">", "==", "!=", "in"]
+    op: Literal["<=", "<", ">=", ">", "==", "!=", "in", "not_in"]
     value: str
     quote: str
 
@@ -77,7 +77,7 @@ Allowed fields:
 
 Instructions:
 - Amounts in plain rupee digits (e.g. "Rs 4.5 lakh" -> 450000). Percent/percentile as a plain number.
-- For op "in", give comma-separated options.
+- For ops "in" and "not_in", give comma-separated options (e.g. study_mode not_in "correspondence, distance").
 - quote must be copied EXACTLY, word for word, from the text (one sentence or bullet).
 - Only include conditions that are actually stated in the text. Do not add any from general knowledge.
 
@@ -123,7 +123,8 @@ def evaluate(rules: list[EligibilityRule], values: dict[str, str]) -> tuple[str,
             same = _norm(v) == _norm(r.value)
             passed = same if r.op == "==" else not same
         else:
-            passed = _norm(v) in [_norm(x) for x in r.value.split(",")]
+            options = [_norm(x) for x in r.value.split(",")]
+            passed = (_norm(v) in options) if r.op == "in" else (_norm(v) not in options)
         results.append(RuleResult(rule=r, passed=passed,
                                   reason=f"{r.field} {r.op} {r.value}: {'met' if passed else 'not met'}"))
     if any(x.passed is False for x in results):
