@@ -301,6 +301,10 @@ function ReceiptCard({ r }: { r: any }) {
       <a href={`${API}/receipts/${r.run_id}_ack.png`} target="_blank" rel="noreferrer">
         <img src={`${API}/receipts/${r.run_id}_ack.png`} alt="Acknowledgement page" className="mt-3 rounded border border-slate-200" />
       </a>
+      <a href={`${API}/receipts/${r.run_id}_evidence.pdf`} target="_blank" rel="noreferrer"
+        className="mt-3 block rounded bg-slate-900 px-3 py-2 text-center text-sm font-medium text-white">
+        Download evidence pack (PDF)
+      </a>
     </Card>
   );
 }

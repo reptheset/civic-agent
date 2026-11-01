@@ -18,6 +18,7 @@ from agent.browser.loop import run_browser_task
 from agent.config import MIN_AUTO_CONFIDENCE, RECEIPT_DIR
 from agent.documents import build_profile, read_document
 from agent.eligibility import SCHEMES, evaluate, extract_rules, fetch_guideline
+from agent.evidence import build_evidence_pdf
 from agent.llm import LLMUnavailable, generate_json
 from agent.runtime import browsers, bus
 from agent.state import RunState
@@ -259,6 +260,11 @@ async def receipt(state: RunState):
         "steps_taken": len(state.get("step_log", [])), "review_rows": state.get("review_rows", []),
         "eligibility_verdict": state.get("verdict"), "guideline": state.get("guideline", {}),
     }
+    try:
+        pdf, pdf_hash = build_evidence_pdf(rec, state)
+        rec["evidence_pdf"], rec["evidence_sha256"] = pdf, pdf_hash
+    except Exception as e:
+        await bus.publish(run_id, "error", f"Evidence pack failed: {str(e)[:150]}")
     (RECEIPT_DIR / f"{run_id}.json").write_text(json.dumps(rec, indent=2))
     await bus.publish(run_id, "receipt",
                       f"Receipt captured: {app_id} ({'verified on page' if verified else 'NOT verified'})", rec)
