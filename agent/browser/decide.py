@@ -48,7 +48,7 @@ def _fmt_element(e: dict) -> str:
 def redact(text: str, profile: dict) -> str:
     """Replace the citizen's actual values with tags so the LLM never sees them."""
     for value, key in sorted(value_variants(profile).items(), key=lambda kv: -len(kv[0])):
-        text = re.sub(re.escape(value), f"[{key}]", text, flags=re.I)
+        text = re.sub(r"(?<![A-Za-z0-9])" + re.escape(value) + r"(?![A-Za-z0-9])", f"[{key}]", text, flags=re.I)
     return text
 
 

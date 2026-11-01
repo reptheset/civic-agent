@@ -77,6 +77,17 @@ async def observe(page) -> dict:
         await page.wait_for_load_state("domcontentloaded", timeout=10_000)
     except Exception:
         pass
-    obs = await page.evaluate(OBSERVE_JS)
+    for attempt in range(3):
+        try:
+            obs = await page.evaluate(OBSERVE_JS)
+            break
+        except Exception:
+            if attempt == 2:
+                raise
+            await page.wait_for_timeout(1500)
+            try:
+                await page.wait_for_load_state("domcontentloaded", timeout=10_000)
+            except Exception:
+                pass
     obs["text"], obs["injection_flags"] = sanitize(obs["text"])
     return obs

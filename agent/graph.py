@@ -200,6 +200,20 @@ async def fill(state: RunState):
 
 
 async def submit(state: RunState):
+    run_id = state["run_id"]
+    marker = RECEIPT_DIR / f"{run_id}.final_submit"
+    if marker.exists():          # re-entered after an interruption that happened after the click
+        page = await browsers.page_for(run_id)
+        try:
+            text = await page.inner_text("body")
+        except Exception:
+            text = ""
+        if ID_PATTERN.search(text):
+            return {"phase": "submit", "status": "done", "error": None}
+        msg = (f"Duplicate protection: Final Submit was already clicked for this application at "
+               f"{marker.read_text().strip()}. Not submitting again. Check the status on the portal's Track page.")
+        await bus.publish(run_id, "security", msg)
+        return {"phase": "submit", "status": "already_submitted", "error": msg}
     await bus.publish(state["run_id"], "node", "Submitting with the user's approval")
     result, new_steps = await _run_browser(state, SUBMIT_GOAL, allow_submit=True)
     return {"phase": "submit", "status": result["status"], "error": result["reason"], "step_log": new_steps}

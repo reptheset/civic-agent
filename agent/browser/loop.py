@@ -169,6 +169,14 @@ async def run_browser_task(page, *, goal: str, profile: dict, documents: list, r
                         shot=f"{run_id}/{step:03d}.png" if shot else None)
 
             if note.startswith("Duplicate protection"):
+                try:      # the first click may still be loading (slow network): give it time before concluding
+                    await page.wait_for_load_state("networkidle", timeout=15_000)
+                except Exception:
+                    pass
+                if page.url != obs["url"]:
+                    await _emit(emit, "log", "The first Final Submit click went through (page moved on); "
+                                "not clicking again")
+                    break
                 await _emit(emit, "security", note + " Check the application status on the portal before "
                             "doing anything else.")
                 return {"status": "already_submitted", "reason": note, "url": page.url, "history": history}
