@@ -62,6 +62,8 @@ async def act_with_recovery(page, action: Action, obs: dict, profile, documents,
         except (BadReference, ActionBlocked) as e:
             return False, str(e), rung          # retrying the same thing will not help
         except Exception as e:
+            if action.type == "click" and page.url != obs["url"]:
+                return True, "moved to a new page (slow response)", rung
             last_error = str(e).split("\n")[0][:200]
     await _emit(emit, "recover", "Rung 3: reporting the failure to the planner to re-plan")
     return False, f"action failed: {last_error}", 3
