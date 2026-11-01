@@ -12,7 +12,8 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
 from pydantic import BaseModel
 
-from agent.config import CHECKPOINT_DB, DATA_DIR, RECEIPT_DIR, SCREENSHOT_DIR, TESTBED_URL
+from agent.config import (CHECKPOINT_DB, CORS_ORIGIN_REGEX, CORS_ORIGINS, DATA_DIR, HEADLESS, RECEIPT_DIR,
+                          SCREENSHOT_DIR, TESTBED_URL)
 from agent.graph import build_graph
 from agent.runtime import browsers, bus
 
@@ -24,7 +25,7 @@ GRAPH = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global GRAPH
-    await browsers.start(headless=False)
+    await browsers.start(headless=HEADLESS)
     async with AsyncSqliteSaver.from_conn_string(str(CHECKPOINT_DB)) as saver:
         GRAPH = build_graph(saver)
         yield
@@ -32,7 +33,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Civic Agent API", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000"],
+app.add_middleware(CORSMiddleware, allow_origins=CORS_ORIGINS, allow_origin_regex=CORS_ORIGIN_REGEX,
                    allow_methods=["*"], allow_headers=["*"])
 app.mount("/screenshots", StaticFiles(directory=SCREENSHOT_DIR), name="screenshots")
 app.mount("/receipts", StaticFiles(directory=RECEIPT_DIR), name="receipts")
@@ -306,3 +307,61 @@ async def track_application(run_id: str):
         return data
     finally:
         await browsers.close(page_key)
+
+
+# ---------- Hosted mode: the citizen's side of the human step, from the UI ----------
+# On a server there is no visible browser window, so the citizen types the OTP into the UI and
+# it is placed in the portal's field. The agent itself never reads, decides or types it.
+from agent.browser.loop import HUMAN_FIELD
+from testbed import db as portal_db
+
+
+class HumanInput(BaseModel):
+    value: str
+
+
+@app.post("/runs/{run_id}/human-input")
+async def human_input(run_id: str, body: HumanInput):
+    run = RUNS.get(run_id)
+    if not run or run["status"] != "waiting" or (run.get("pending") or {}).get("kind") != "human_step":
+        raise HTTPException(409, "Run is not waiting for a human step")
+    value = body.value.strip()
+    if not value or len(value) > 64:
+        raise HTTPException(400, "Enter the code")
+    page = await browsers.page_for(run_id)
+    for loc in await page.locator("input:not([type=hidden]):not([type=file]):not([type=checkbox])").all():
+        label = await loc.evaluate("""e => ((e.labels && e.labels[0] && e.labels[0].innerText) || e.name ||
+                                          e.id || e.placeholder || e.getAttribute('aria-label') || '')""")
+        if HUMAN_FIELD.search(label or "") and await loc.is_visible():
+            await loc.fill(value)
+            await bus.publish(run_id, "log", "Citizen entered the code (the agent never sees or types it)")
+            _launch(run_id, Command(resume={"done": True}))
+            return {"ok": True}
+    raise HTTPException(404, "No OTP field found on the current page")
+
+
+@app.get("/runs/{run_id}/sms")
+async def sms_inbox(run_id: str):
+    """The test portal's simulated SMS to the citizen's own mobile number (stands in for their phone)."""
+    snap = await GRAPH.aget_state(_cfg(run_id))
+    mobile = (((snap.values or {}).get("profile") or {}).get("mobile") or {}).get("value", "")
+    digits = "".join(c for c in str(mobile) if c.isdigit())[-10:]
+    if not digits:
+        return {"messages": []}
+    with portal_db._conn() as c:
+        rows = c.execute("SELECT message, created FROM outbox WHERE mobile=? ORDER BY id DESC LIMIT 3",
+                         (digits,)).fetchall()
+    return {"messages": [{"message": r["message"], "created": r["created"]} for r in rows]}
+
+
+@app.get("/portal/faults")
+async def portal_faults():
+    return {"faults": portal_db.all_faults()}
+
+
+@app.post("/portal/faults/{name}")
+async def toggle_portal_fault(name: str):
+    if name not in portal_db.FAULTS:
+        raise HTTPException(404, "Unknown fault")
+    portal_db.set_fault(name, not portal_db.fault_on(name))
+    return {"faults": portal_db.all_faults()}

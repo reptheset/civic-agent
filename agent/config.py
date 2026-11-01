@@ -20,6 +20,11 @@ for d in (DATA_DIR, UPLOAD_DIR, RECEIPT_DIR, SCREENSHOT_DIR):
 
 TESTBED_URL = os.getenv("TESTBED_URL", "http://localhost:8001")
 
+# Deployment settings. Locally nothing needs to be set: visible browser, UI on localhost:3000.
+HEADLESS = os.getenv("HEADLESS", "0") == "1"
+CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",") if o.strip()]
+CORS_ORIGIN_REGEX = os.getenv("CORS_ORIGIN_REGEX") or None     # e.g. https://.*\.vercel\.app
+
 # The browser agent may only visit these hosts. Enforced in code, not in the prompt.
 ALLOWED_HOSTS = {
     "localhost", "127.0.0.1",

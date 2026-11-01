@@ -3,8 +3,11 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { FIELDS, LANG_NAMES, STAGES, STR, type Lang } from "./i18n";
 
-const API = "http://localhost:8000";
-const WS = "ws://localhost:8000";
+// Locally the API is on localhost:8000; when deployed, NEXT_PUBLIC_API points at the hosted API.
+const API = (process.env.NEXT_PUBLIC_API || "http://localhost:8000").replace(/\/$/, "");
+const WS = API.replace(/^http/, "ws");
+const LOCAL = API.includes("localhost") || API.includes("127.0.0.1");
+const RunCtx = createContext<string | null>(null);
 
 type Ev = { type: string; message: string; data: any; ts: number };
 
@@ -263,17 +266,64 @@ function Eligibility({ data, onRespond }: { data: any; onRespond: (v: any) => vo
 
 function HumanStep({ data, onRespond }: { data: any; onRespond: (v: any) => void }) {
   const { t } = useT();
+  const runId = useContext(RunCtx);
+  const [code, setCode] = useState("");
+  const [sms, setSms] = useState<any[]>([]);
+  useEffect(() => {
+    if (!runId) return;
+    let alive = true;
+    const load = () => fetch(`${API}/runs/${runId}/sms`).then((r) => r.json())
+      .then((j) => { if (alive) setSms(j.messages ?? []); }).catch(() => {});
+    load();
+    const timer = setInterval(load, 2000);
+    return () => { alive = false; clearInterval(timer); };
+  }, [runId]);
   return (
     <div className="space-y-3">
       <p className="text-sm font-semibold">{t("human_title")}</p>
       <p className="text-xs text-slate-500">{data.reason}</p>
-      <p className="text-xs text-slate-600">{t("human_desc")}</p>
-      <p className="text-xs text-slate-600">
-        {t("otp_hint")}{" "}
-        <a href="http://localhost:8001/admin" target="_blank" rel="noreferrer" className="underline">{t("admin_page")}</a>
-      </p>
-      <button onClick={() => onRespond({ done: true })} className={`${BTN} w-full bg-indigo-600 text-white`}>{t("completed")}</button>
+      <p className="text-xs text-slate-600">{t("human_desc_ui")}</p>
+      <div className="rounded border border-slate-200 bg-slate-50 p-2">
+        <div className="text-[11px] font-semibold uppercase text-slate-500">{t("sms_title")}</div>
+        <div className="mb-1 text-[10px] text-slate-400">{t("sms_note")}</div>
+        {sms.length === 0 && <div className="text-xs text-slate-500">{t("sms_empty")}</div>}
+        {sms.slice(0, 1).map((m, i) => <div key={i} className="text-sm">{m.message}</div>)}
+      </div>
+      <input value={code} onChange={(e) => setCode(e.target.value)} placeholder={t("otp_label")} inputMode="numeric"
+        className="block w-full rounded border border-slate-300 px-2 py-1.5 font-mono text-sm" />
+      <button disabled={!code.trim()} onClick={() => onRespond({ __otp: code.trim() })}
+        className={`${BTN} w-full bg-indigo-600 text-white`}>{t("otp_send")}</button>
+      {LOCAL && (
+        <button onClick={() => onRespond({ done: true })} className={`${BTN} w-full border border-slate-300 bg-white text-slate-900`}>
+          {t("completed")}
+        </button>
+      )}
     </div>
+  );
+}
+
+function PortalFaults() {
+  const { t } = useT();
+  const [faults, setFaults] = useState<any[]>([]);
+  useEffect(() => {
+    fetch(`${API}/portal/faults`).then((r) => r.json()).then((j) => setFaults(j.faults ?? [])).catch(() => {});
+  }, []);
+  async function toggle(name: string) {
+    const r = await fetch(`${API}/portal/faults/${name}`, { method: "POST" });
+    if (r.ok) setFaults((await r.json()).faults ?? []);
+  }
+  return (
+    <Card title={t("faults_title")}>
+      <p className="mb-2 text-xs text-slate-600">{t("faults_note")}</p>
+      <div className="space-y-1.5">
+        {faults.map((f) => (
+          <label key={f.name} className="flex cursor-pointer items-start gap-2 text-xs">
+            <input type="checkbox" checked={f.on} onChange={() => toggle(f.name)} className="mt-0.5" />
+            <span><span className="font-mono font-semibold">{f.name}</span> <span className="text-slate-500">{f.desc}</span></span>
+          </label>
+        ))}
+      </div>
+    </Card>
   );
 }
 
@@ -534,8 +584,10 @@ export default function Home() {
   async function respond(value: any) {
     if (!runId) return;
     setAnswered(lastInterrupt);
-    const r = await fetch(`${API}/runs/${runId}/resume`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value }),
+    const otp = value && typeof value === "object" && "__otp" in value;
+    const r = await fetch(`${API}/runs/${runId}/${otp ? "human-input" : "resume"}`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(otp ? { value: value.__otp } : { value }),
     });
     if (!r.ok) { setError(`Could not send: ${await r.text()}`); setAnswered(-1); }
   }
@@ -572,6 +624,7 @@ export default function Home() {
 
   return (
     <LangCtx.Provider value={lang}>
+    <RunCtx.Provider value={runId}>
       <main className="min-h-screen">
         <header className="flex flex-wrap items-center justify-between gap-3 bg-slate-900 px-6 py-4 text-white">
           <div>
@@ -625,6 +678,8 @@ export default function Home() {
               </div>
             </Card>
 
+            <PortalFaults />
+
             <Card title={t("recover_title")}>
               <p className="mb-2 text-xs text-slate-600">{t("recover_desc")}</p>
               <div className="flex gap-2">
@@ -664,6 +719,7 @@ export default function Home() {
           Made with ❤️ by Ashu &amp; Aviral
         </footer>
       </main>
+    </RunCtx.Provider>
     </LangCtx.Provider>
   );
 }
