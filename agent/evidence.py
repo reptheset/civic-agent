@@ -73,7 +73,7 @@ def build_evidence_pdf(rec: dict, state: dict) -> tuple[str, str]:
     for k, f in sorted((state.get("profile") or {}).items()):
         p = f.get("provenance", {})
         prov.append([k, p.get("kind", "") + (f" ({p['document_type']})" if p.get("document_type") else ""),
-                     "yes" if f.get("confirmed") else "no"])
+                     "yes" if f.get("confirmed") else ("auto (matched document text)" if p.get("confidence", 0) >= 0.85 else "no")])
     story += [Spacer(1, 3 * mm), table(prov, [55 * mm, 80 * mm, 35 * mm])]
 
     # 4. Execution log

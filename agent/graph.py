@@ -206,7 +206,8 @@ REVIEW_JS = """() => [...document.querySelectorAll('tr')]
   .filter(r => r[0])"""
 
 
-async def approval(state: RunState):
+async def prepare_approval(state: RunState):
+    """Reads the portal's review table once and saves it in the checkpoint."""
     page = await browsers.page_for(state["run_id"])
     try:
         rows = await page.evaluate(REVIEW_JS)
@@ -216,11 +217,17 @@ async def approval(state: RunState):
         await bus.publish(state["run_id"], "security",
                           "Safety violation: the portal shows an acknowledgement before approval. Stopping.")
         return {"status": "safety_stop", "review_rows": rows}
+    return {"status": "awaiting_approval", "review_rows": rows}
+
+
+async def approval(state: RunState):
+    """Pauses for the user. On resume (even after a crash) it uses the saved rows, not the live page."""
+    rows = state.get("review_rows", [])
     decision = interrupt({"kind": "approval", "rows": rows,
                           "sources": {k: _source(f) for k, f in state["profile"].items()}})
     approved = decision.get("approved") is True if isinstance(decision, dict) else decision is True
     await bus.publish(state["run_id"], "log", "User approved submission" if approved else "User declined submission")
-    return {"status": "approved" if approved else "cancelled", "review_rows": rows}
+    return {"status": "approved" if approved else "cancelled"}
 
 
 class AckExtract(BaseModel):
@@ -280,7 +287,7 @@ def after_gate(state: RunState):
 def after_browser(state: RunState):
     s = state["status"]
     if s == "done":
-        return "approval" if state["phase"] == "fill" else "receipt"
+        return "prepare_approval" if state["phase"] == "fill" else "receipt"
     if s == "needs_human":
         return "human_gate"
     if s == "needs_info":
@@ -301,14 +308,17 @@ def build_graph(checkpointer):
     for name, fn in [("intake", intake), ("confirm_profile", confirm_profile),
                      ("check_eligibility", check_eligibility), ("eligibility_gate", eligibility_gate),
                      ("fill", fill), ("submit", submit), ("human_gate", human_gate), ("info_gate", info_gate),
-                     ("approval", approval), ("receipt", receipt)]:
+                     ("prepare_approval", prepare_approval), ("approval", approval), ("receipt", receipt)]:
         g.add_node(name, fn)
     g.add_edge(START, "intake")
     g.add_edge("intake", "confirm_profile")
     g.add_edge("confirm_profile", "check_eligibility")
     g.add_edge("check_eligibility", "eligibility_gate")
     g.add_conditional_edges("eligibility_gate", after_gate, ["fill", END])
-    g.add_conditional_edges("fill", after_browser, ["approval", "human_gate", "info_gate", END])
+    g.add_conditional_edges("fill", after_browser, ["prepare_approval", "human_gate", "info_gate", END])
+    g.add_conditional_edges("prepare_approval",
+                            lambda s: "approval" if s.get("status") == "awaiting_approval" else END,
+                            ["approval", END])
     g.add_conditional_edges("submit", after_browser, ["receipt", "human_gate", "info_gate", END])
     g.add_conditional_edges("human_gate", back_to_phase, ["fill", "submit"])
     g.add_conditional_edges("info_gate", back_to_phase, ["fill", "submit"])
