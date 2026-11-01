@@ -69,6 +69,11 @@ def build_evidence_pdf(rec: dict, state: dict) -> tuple[str, str]:
     story += [Paragraph("3. Submitted values and their sources", h2),
               table([["Form field", "Value submitted"]] + [[l, v] for l, v in rec.get("review_rows", [])],
                     [70 * mm, 100 * mm])]
+    bad = rec.get("review_unverified") or []
+    story += [Spacer(1, 2 * mm), Paragraph(_t(
+        "Review-page cross-check: every value on the portal's review page matched the verified profile."
+        if not bad else "Review-page cross-check: values NOT matching the verified profile: "
+        + "; ".join(f"{l}: {v}" for l, v in bad)), small)]
     prov = [["Profile field", "Source", "Confirmed by user"]]
     for k, f in sorted((state.get("profile") or {}).items()):
         p = f.get("provenance", {})

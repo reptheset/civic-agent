@@ -19,6 +19,7 @@ from agent.config import MIN_AUTO_CONFIDENCE, RECEIPT_DIR
 from agent.documents import build_profile, read_document
 from agent.eligibility import SCHEMES, evaluate, extract_rules, fetch_guideline
 from agent.evidence import build_evidence_pdf
+from agent.ledger import FORMATS
 from agent.llm import LLMUnavailable, generate_json
 from agent.runtime import browsers, bus
 from agent.state import RunState
@@ -201,6 +202,22 @@ async def info_gate(state: RunState):
     return {"profile": profile, "status": "resumed"}
 
 
+def _unverified_rows(rows: list, profile: dict) -> list:
+    """Review-page values that do not match any verified profile value (in any allowed format)."""
+    known = set()
+    for f in profile.values():
+        v = str(f.get("value", ""))
+        known.add(v.strip().lower())
+        for fn in FORMATS.values():
+            try:
+                known.add(str(fn(v)).strip().lower())
+            except Exception:
+                pass
+    return [[label, value] for label, value in rows
+            if value and not re.search(r"\.(pdf|jpe?g|png|webp)$", value, re.I)
+            and value.strip().lower() not in known]
+
+
 REVIEW_JS = """() => [...document.querySelectorAll('tr')]
   .map(tr => [tr.querySelector('th')?.innerText.trim(), tr.querySelector('td')?.innerText.trim()])
   .filter(r => r[0])"""
@@ -217,6 +234,14 @@ async def prepare_approval(state: RunState):
         await bus.publish(state["run_id"], "security",
                           "Safety violation: the portal shows an acknowledgement before approval. Stopping.")
         return {"status": "safety_stop", "review_rows": rows}
+    unverified = _unverified_rows(rows, state["profile"])
+    if unverified:
+        await bus.publish(state["run_id"], "security",
+                          f"{len(unverified)} value(s) on the portal's review page do not match the verified profile",
+                          {"flagged": [f"{l}: {v}" for l, v in unverified]})
+    else:
+        await bus.publish(state["run_id"], "verify",
+                          "Review page cross-checked: every value matches the verified profile", {"ok": True})
     return {"status": "awaiting_approval", "review_rows": rows}
 
 
@@ -224,6 +249,7 @@ async def approval(state: RunState):
     """Pauses for the user. On resume (even after a crash) it uses the saved rows, not the live page."""
     rows = state.get("review_rows", [])
     decision = interrupt({"kind": "approval", "rows": rows,
+                          "unverified": _unverified_rows(rows, state["profile"]),
                           "sources": {k: _source(f) for k, f in state["profile"].items()}})
     approved = decision.get("approved") is True if isinstance(decision, dict) else decision is True
     await bus.publish(state["run_id"], "log", "User approved submission" if approved else "User declined submission")
@@ -267,6 +293,7 @@ async def receipt(state: RunState):
         "steps_taken": len(state.get("step_log", [])), "review_rows": state.get("review_rows", []),
         "eligibility_verdict": state.get("verdict"), "guideline": state.get("guideline", {}),
     }
+    rec["review_unverified"] = _unverified_rows(rec["review_rows"], state["profile"])
     try:
         pdf, pdf_hash = build_evidence_pdf(rec, state)
         rec["evidence_pdf"], rec["evidence_sha256"] = pdf, pdf_hash

@@ -248,6 +248,17 @@ function Approval({ data, onRespond }: { data: any; onRespond: (v: any) => void 
   return (
     <div className="space-y-3">
       <p className="text-sm">The agent filled the portal and stopped at its review page. <b>Nothing has been submitted.</b></p>
+      {(data.unverified ?? []).length > 0 ? (
+        <div className="rounded border border-red-300 bg-red-50 p-2 text-xs text-red-800">
+          <b>Not from your verified profile:</b>{" "}
+          {data.unverified.map(([l, v]: [string, string]) => `${l}: "${v}"`).join("; ")}.
+          The portal may have reused an old draft. Decline, or approve only if these are correct.
+        </div>
+      ) : (
+        <div className="rounded border border-emerald-300 bg-emerald-50 p-2 text-xs text-emerald-800">
+          ✓ Every value on the review page matches your verified profile.
+        </div>
+      )}
       <table className="w-full text-sm">
         <tbody>
           {(data.rows ?? []).map(([label, value]: [string, string], i: number) => (

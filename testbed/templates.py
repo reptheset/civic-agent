@@ -115,6 +115,7 @@ ADMIN = """{% extends "base" %}{% block body %}
 <td class="{{ 'on' if f.on else 'off' }}">{{ 'ON' if f.on else 'off' }}</td>
 <td><form method="post" action="/admin/fault/{{ f.name }}"><button class="btn" type="submit">{{ 'Turn off' if f.on else 'Turn on' }}</button></form></td></tr>{% endfor %}
 </table>
+<form method="post" action="/admin/clear-drafts" style="margin-top:10px"><button class="btn" type="submit">Clear all drafts and sessions</button></form>
 <h3>SMS outbox (latest)</h3>
 <table class="list"><tr><th>Mobile</th><th>Message</th></tr>
 {% for m in outbox %}<tr><td>{{ m.mobile }}</td><td>{{ m.message }}</td></tr>{% else %}<tr><td colspan="2">Empty</td></tr>{% endfor %}</table>

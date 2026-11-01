@@ -239,3 +239,11 @@ def toggle_fault(name: str):
     if name in db.FAULTS:
         db.set_fault(name, not db.fault_on(name))
     return go("/admin")
+
+
+@app.post("/admin/clear-drafts")
+def clear_drafts():
+    with db._conn() as c:
+        c.execute("DELETE FROM drafts")
+        c.execute("DELETE FROM sessions")
+    return go("/admin")
