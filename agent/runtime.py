@@ -39,7 +39,11 @@ class BrowserManager:
 
     async def start(self, headless: bool = False):
         self._pw = await async_playwright().start()
-        self._browser = await self._pw.chromium.launch(headless=headless, slow_mo=100)
+        # On a server (headless, inside a small container): flags that keep Chromium's memory low and
+        # avoid the tiny /dev/shm of Docker. Locally (visible browser) nothing changes.
+        args = (["--disable-dev-shm-usage", "--disable-gpu", "--no-zygote", "--disable-extensions",
+                 "--renderer-process-limit=2", "--js-flags=--max-old-space-size=128"] if headless else [])
+        self._browser = await self._pw.chromium.launch(headless=headless, slow_mo=0 if headless else 100, args=args)
 
     @property
     def browser(self):
