@@ -42,17 +42,17 @@ function SourceBadge({ source, confidence }: { source: string; confidence?: numb
   );
 }
 
-function EventRow({ ev }: { ev: Ev }) {
+function EventRow({ ev, t0 }: { ev: Ev; t0?: number }) {
   const failed = ev.type === "verify" && ev.data?.ok === false;
   const style = failed ? "bg-red-50 text-red-800 border-red-300" : TYPE_STYLE[ev.type] ?? TYPE_STYLE.log;
   return (
     <div className={`rounded border px-2.5 py-1.5 text-sm ${style}`}>
       <div className="flex gap-2">
-        <span className="w-16 shrink-0 pt-0.5 font-mono text-[10px] uppercase tracking-wide opacity-70">{ev.type}</span>
+        <span className="w-20 shrink-0 pt-0.5 font-mono text-[10px] uppercase tracking-wide opacity-70">{ev.type}{t0 !== undefined && <span className="block normal-case">+{Math.round(ev.ts - t0)}s</span>}</span>
         <span className="break-words">{ev.message}</span>
       </div>
       {ev.type === "security" && Array.isArray(ev.data?.flagged) && (
-        <ul className="ml-[4.5rem] mt-1 list-disc text-xs">
+        <ul className="ml-[5.5rem] mt-1 list-disc text-xs">
           {ev.data.flagged.map((f: string, i: number) => <li key={i}>removed: {f.slice(0, 140)}</li>)}
         </ul>
       )}
@@ -320,6 +320,56 @@ function ReceiptCard({ r }: { r: any }) {
   );
 }
 
+const STAGES = ["Read documents", "Confirm details", "Eligibility", "Fill portal", "Your approval", "Submit", "Receipt"];
+
+function stageOf(e: Ev): number {
+  const m = e.message;
+  if (e.type === "receipt" || (e.type === "done" && e.data?.receipt)) return 6;
+  if (m.startsWith("Submitting")) return 5;
+  if (e.type === "interrupt" && e.data?.kind === "approval") return 4;
+  if (m.startsWith("Filling")) return 3;
+  if (m.startsWith("Checking eligibility") || (e.type === "interrupt" && e.data?.kind === "eligibility")) return 2;
+  if (e.type === "interrupt" && e.data?.kind === "confirm_profile") return 1;
+  if (m.startsWith("Reading")) return 0;
+  return -1;
+}
+
+function Stepper({ stage, done }: { stage: number; done: boolean }) {
+  return (
+    <ol className="flex flex-wrap items-center gap-2 px-4 pt-4">
+      {STAGES.map((s, i) => {
+        const state = done || i < stage ? "done" : i === stage ? "now" : "todo";
+        const cls = state === "done" ? "bg-emerald-600 text-white"
+          : state === "now" ? "bg-indigo-600 text-white ring-4 ring-indigo-200"
+          : "border border-slate-300 bg-white text-slate-500";
+        return (
+          <li key={s} className="flex items-center gap-2">
+            <span className={`flex h-7 items-center gap-1.5 rounded-full px-3 text-xs font-medium ${cls}`}>
+              {state === "done" ? "✓" : i + 1} {s}
+            </span>
+            {i < STAGES.length - 1 && <span className="h-px w-4 bg-slate-300" />}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function AgentView({ ev }: { ev: Ev | undefined }) {
+  if (!ev) return null;
+  return (
+    <Card title="Agent's view">
+      <img src={`${API}/screenshots/${ev.data.shot}`} alt="Latest screenshot of the agent's browser"
+        className="w-full rounded border border-slate-200" />
+      <p className={`mt-2 text-xs ${ev.data.ok === false ? "text-red-700" : "text-slate-600"}`}>{ev.message}</p>
+    </Card>
+  );
+}
+
+function fmt(sec: number) {
+  return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+}
+
 // ---------- Page ----------
 
 export default function Home() {
@@ -399,6 +449,17 @@ export default function Home() {
   }), [events]);
   const receipt = events.find((e) => e.type === "receipt")?.data;
   const finished = events.find((e) => e.type === "done" || e.message.startsWith("Workflow error"));
+  const stage = useMemo(() => events.reduce((m, e) => Math.max(m, stageOf(e)), -1), [events]);
+  const lastShot = useMemo(() => [...events].reverse().find((e) => e.type === "verify" && e.data?.shot), [events]);
+  const [now, setNow] = useState(0);
+  useEffect(() => {
+    if (!runId || finished) return;
+    setNow(Date.now() / 1000);
+    const timer = setInterval(() => setNow(Date.now() / 1000), 1000);
+    return () => clearInterval(timer);
+  }, [runId, finished]);
+  const t0 = events[0]?.ts;
+  const elapsed = t0 ? Math.max(0, Math.round((finished ? finished.ts : now) - t0)) : 0;
 
   return (
     <main className="min-h-screen">
@@ -409,11 +470,17 @@ export default function Home() {
             Autonomous public-service execution · every value traced to its source · nothing submitted without your approval
           </p>
         </div>
-        {runId && <span className="rounded bg-slate-800 px-2 py-1 font-mono text-xs">run {runId}</span>}
+        {runId && (
+          <div className="text-right">
+            <div className="font-mono text-2xl font-semibold tabular-nums">{fmt(elapsed)}</div>
+            <div className="font-mono text-xs text-slate-400">run {runId}</div>
+          </div>
+        )}
       </header>
 
       {error && <div className="mx-4 mt-4 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</div>}
 
+      {runId && <Stepper stage={stage} done={!!receipt} />}
       <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-12">
         <section className="space-y-4 lg:col-span-3">
           <Card title="1 · Upload documents">
@@ -459,7 +526,7 @@ export default function Home() {
               {events.length === 0 && (
                 <p className="text-sm text-slate-500">Start a run to watch the agent observe, plan, act and verify in real time.</p>
               )}
-              {events.map((e, i) => <EventRow key={i} ev={e} />)}
+              {events.map((e, i) => <EventRow key={i} ev={e} t0={events[0]?.ts} />)}
               <div ref={feedEnd} />
             </div>
           </Card>
@@ -474,6 +541,7 @@ export default function Home() {
           {!pending && runId && !finished && (
             <Card title="Status"><p className="animate-pulse text-sm text-slate-600">Agent is working…</p></Card>
           )}
+          {!receipt && <AgentView ev={lastShot} />}
           {receipt && <ReceiptCard r={receipt} />}
           {finished && !receipt && <Card title="Finished"><p className="text-sm">{finished.message}</p></Card>}
         </section>

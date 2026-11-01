@@ -135,7 +135,7 @@ async def run_browser_task(page, *, goal: str, profile: dict, documents: list, r
                 shot = None
             history.append(StepLog(step=step, url=page.url, action=action, ok=ok, verify_note=note,
                                    recovery_rung=rung, screenshot=str(shot) if shot else None).model_dump())
-            await _emit(emit, "verify", f"{'OK' if ok else 'FAILED'}: {note}", ok=ok, rung=rung)
+            await _emit(emit, "verify", f"{'OK' if ok else 'FAILED'}: {note}", ok=ok, rung=rung, shot=f"{run_id}/{step:03d}.png" if shot else None)
 
             failures = 0 if ok else failures + 1
             if not ok:
