@@ -186,3 +186,39 @@ async def start_from_documents(files: list[UploadFile] = File(...), scheme: str 
              "status": "starting", "phase": "fill"}
     _launch(run_id, state)
     return {"run_id": run_id}
+
+
+# ---------- Plain-language explanations in the citizen's language ----------
+from agent.llm import LLMUnavailable, generate_json
+
+LANGS = {"hi": "Hindi", "or": "Odia"}
+
+
+class ExplainReq(BaseModel):
+    language: str
+    verdict: str
+    results: list[dict]
+
+
+class Explanation(BaseModel):
+    summary: str
+    rules: list[str]
+
+
+@app.post("/explain")
+async def explain(body: ExplainReq):
+    lang = LANGS.get(body.language)
+    if not lang:
+        raise HTTPException(400, "Unsupported language")
+    lines = "\n".join(f"- {r.get('reason', '')} (official rule: {(r.get('rule') or {}).get('quote', '')})"
+                      for r in body.results)
+    prompt = (f"Explain this scholarship eligibility result to a student in simple, polite {lang}.\n"
+              f"Verdict: {body.verdict}\nRule results:\n{lines}\n\n"
+              f"Return 'summary' (at most 2 sentences) and 'rules': exactly one short {lang} line per rule, "
+              f"in the same order. Keep every number exactly as given. Do not add rules, advice or facts "
+              f"that are not above. 'needs review' means the data needed to decide is missing.")
+    try:
+        ex = await asyncio.to_thread(generate_json, prompt, Explanation)
+    except LLMUnavailable:
+        raise HTTPException(503, "Model unavailable, try again")
+    return ex.model_dump()

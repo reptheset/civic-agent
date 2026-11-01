@@ -170,9 +170,30 @@ function ConfirmProfile({ data, onRespond }: { data: any; onRespond: (v: any) =>
 
 function Eligibility({ data, onRespond }: { data: any; onRespond: (v: any) => void }) {
   const g = data.guideline ?? {};
+  const results: any[] = data.results ?? [];
+  const [lang, setLang] = useState("en");
+  const [expl, setExpl] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
   const verdictStyle: Record<string, string> = {
     eligible: "bg-emerald-600", not_eligible: "bg-red-600", needs_review: "bg-amber-500",
   };
+
+  async function pick(l: string) {
+    setLang(l);
+    setExpl(null);
+    if (l === "en") return;
+    setLoading(true);
+    try {
+      const r = await fetch(`${API}/explain`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ language: l, verdict: data.verdict, results }),
+      });
+      if (r.ok) setExpl(await r.json());
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
@@ -181,6 +202,21 @@ function Eligibility({ data, onRespond }: { data: any; onRespond: (v: any) => vo
         </span>
         <span className="text-sm font-medium">{g.name}</span>
       </div>
+      <div className="flex gap-1">
+        {[["en", "English"], ["hi", "हिन्दी"], ["or", "ଓଡ଼ିଆ"]].map(([k, label]) => (
+          <button key={k} onClick={() => pick(k)}
+            className={`rounded px-2.5 py-1 text-xs font-medium ${lang === k ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700"}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {loading && <p className="animate-pulse text-xs text-slate-500">Explaining…</p>}
+      {expl?.summary && (
+        <div className="rounded border border-indigo-200 bg-indigo-50 p-2 text-sm text-indigo-900">
+          {expl.summary}
+          <div className="mt-1 text-[10px] text-indigo-700">AI explanation. The official English quote under each rule is the source.</div>
+        </div>
+      )}
       <p className="text-xs text-slate-500">
         Rules read live from{" "}
         <a href={g.url} target="_blank" rel="noreferrer" className="underline">{g.url}</a> at {g.fetched_at}.
@@ -188,15 +224,17 @@ function Eligibility({ data, onRespond }: { data: any; onRespond: (v: any) => vo
         {g.dropped ? `; ${g.dropped} rule(s) without a matching quote were discarded` : ""}.
       </p>
       <ul className="space-y-2">
-        {(data.results ?? []).map((r: any, i: number) => {
+        {results.map((r: any, i: number) => {
           const [label, cls] = r.passed === true ? ["PASS", "bg-emerald-100 text-emerald-800"]
             : r.passed === false ? ["FAIL", "bg-red-100 text-red-800"] : ["REVIEW", "bg-amber-100 text-amber-800"];
+          const local = expl?.rules?.[i];
           return (
             <li key={i} className="rounded border border-slate-200 p-2 text-sm">
               <div className="flex items-start gap-2">
                 <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${cls}`}>{label}</span>
-                <span>{r.reason}</span>
+                <span>{local ?? r.reason}</span>
               </div>
+              {local && <div className="ml-12 text-[11px] text-slate-500">{r.reason}</div>}
               <blockquote className="mt-1 border-l-2 border-slate-300 pl-2 text-xs italic text-slate-600">“{r.rule?.quote}”</blockquote>
             </li>
           );
