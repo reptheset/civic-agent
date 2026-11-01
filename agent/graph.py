@@ -17,13 +17,13 @@ from agent.browser.decide import redact
 from agent.browser.loop import run_browser_task
 from agent.config import MIN_AUTO_CONFIDENCE, RECEIPT_DIR
 from agent.documents import build_profile, read_document
-from agent.eligibility import SCHEMES, evaluate, extract_rules, fetch_guideline
+from agent.eligibility import RULE_FIELDS, SCHEMES, evaluate, extract_rules, fetch_guideline
 from agent.evidence import build_evidence_pdf
 from agent.skills import learn, load_skill
 from agent.ledger import FORMATS
 from agent.llm import LLMUnavailable, generate_json
 from agent.runtime import browsers, bus
-from agent.state import RunState
+from agent.state import EligibilityRule, RunState
 
 FILL_GOAL = ("Apply for the scholarship on this portal using the applicant's profile and documents. "
              "Log in with the applicant's mobile number, complete every form page, upload the documents, "
@@ -150,8 +150,23 @@ async def check_eligibility(state: RunState):
 async def eligibility_gate(state: RunState):
     if state.get("verdict") == "eligible":
         return {"status": "proceed"}
-    answer = interrupt({"kind": "eligibility", "verdict": state.get("verdict"),
-                        "results": state.get("eligibility", []), "guideline": state.get("guideline", {})})
+    results = state.get("eligibility", [])
+    askable = sorted({r["rule"]["field"] for r in results
+                      if r.get("passed") is None and r["rule"]["field"] in RULE_FIELDS and r["rule"]["field"] != "other"})
+    answer = interrupt({"kind": "eligibility", "verdict": state.get("verdict"), "results": results,
+                        "guideline": state.get("guideline", {}), "askable": askable})
+    declared = {}
+    if isinstance(answer, dict):
+        declared = {k: str(v).strip() for k, v in (answer.get("values") or {}).items() if str(v).strip()}
+    if declared:
+        profile = dict(state["profile"])
+        for k, v in declared.items():
+            profile[k] = {"key": k, "value": v, "confirmed": True, "provenance": {"kind": "user", "confidence": 1.0}}
+        rules = [EligibilityRule(**r["rule"]) for r in results]
+        verdict, new = evaluate(rules, {k: f["value"] for k, f in profile.items()})
+        await bus.publish(state["run_id"], "verify",
+                          f"Eligibility re-checked with user-declared {', '.join(declared)}: {verdict}", {"verdict": verdict})
+        return {"profile": profile, "verdict": verdict, "eligibility": [x.model_dump() for x in new], "status": "recheck"}
     proceed = isinstance(answer, dict) and answer.get("proceed") is True
     await bus.publish(state["run_id"], "log",
                       "User chose to proceed despite the eligibility result" if proceed else "User stopped the application")
@@ -323,7 +338,8 @@ async def receipt(state: RunState):
 # ---------- Routing ----------
 
 def after_gate(state: RunState):
-    return "fill" if state.get("status") == "proceed" else END
+    s = state.get("status")
+    return "fill" if s == "proceed" else ("eligibility_gate" if s == "recheck" else END)
 
 
 def after_browser(state: RunState):
@@ -356,7 +372,7 @@ def build_graph(checkpointer):
     g.add_edge("intake", "confirm_profile")
     g.add_edge("confirm_profile", "check_eligibility")
     g.add_edge("check_eligibility", "eligibility_gate")
-    g.add_conditional_edges("eligibility_gate", after_gate, ["fill", END])
+    g.add_conditional_edges("eligibility_gate", after_gate, ["fill", "eligibility_gate", END])
     g.add_conditional_edges("fill", after_browser, ["prepare_approval", "human_gate", "info_gate", END])
     g.add_conditional_edges("prepare_approval",
                             lambda s: "approval" if s.get("status") == "awaiting_approval" else END,

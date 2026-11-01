@@ -47,6 +47,12 @@ export const STR: Record<Lang, Record<string, string>> = {
     unverified_note: "The portal may have reused an old draft. Decline, or approve only if these are correct.",
     all_match: "✓ Every value on the review page matches your verified profile.",
     where_from: "Where each value came from", approve: "Approve & submit", decline: "Decline", continue: "Continue",
+    track_btn: "Check application status", tracking: "Checking status…", latest_status: "Latest status",
+    checked_at: "Checked", status_verified: "✓ Status read from the portal's tracking page",
+    ai_saw: "What the AI saw (redacted)", ai_saw_note: "Exact input of the last model plan. Your personal values appear only as [tags].",
+    missing_value_title: "Can you provide missing information?",
+    missing_value_note: "Optional. Recorded as declared by you; leave blank if unsure and the rule stays 'needs review'.",
+    reevaluate: "Re-check eligibility",
   },
   hi: {
     tagline: "स्वचालित सरकारी सेवा सहायक · हर जानकारी का स्रोत दर्ज · आपकी मंज़ूरी के बिना कुछ भी जमा नहीं",
@@ -92,6 +98,12 @@ export const STR: Record<Lang, Record<string, string>> = {
     unverified_note: "पोर्टल ने पुराना ड्राफ़्ट इस्तेमाल किया हो सकता है। अस्वीकार करें, या सही हों तभी मंज़ूरी दें।",
     all_match: "✓ समीक्षा पेज की हर जानकारी आपकी पुष्ट जानकारी से मेल खाती है।",
     where_from: "हर जानकारी कहाँ से आई", approve: "मंज़ूरी दें और जमा करें", decline: "अस्वीकार करें", continue: "जारी रखें",
+    track_btn: "आवेदन की स्थिति जाँचें", tracking: "स्थिति जाँची जा रही है…", latest_status: "ताज़ा स्थिति",
+    checked_at: "जाँचा गया", status_verified: "✓ स्थिति पोर्टल के ट्रैकिंग पेज से पढ़ी गई",
+    ai_saw: "AI ने क्या देखा (छिपाकर)", ai_saw_note: "पिछली AI योजना का सटीक इनपुट। आपकी निजी जानकारी केवल [टैग] के रूप में दिखती है।",
+    missing_value_title: "क्या आप छूटी हुई जानकारी दे सकते हैं?",
+    missing_value_note: "वैकल्पिक। आपके द्वारा घोषित जानकारी के रूप में दर्ज होगी; पक्का न हो तो खाली छोड़ें, नियम 'जाँच ज़रूरी' रहेगा।",
+    reevaluate: "पात्रता दोबारा जाँचें",
   },
   or: {
     tagline: "ସ୍ୱୟଂଚାଳିତ ସରକାରୀ ସେବା ସହାୟକ · ପ୍ରତ୍ୟେକ ତଥ୍ୟର ଉତ୍ସ ଲିପିବଦ୍ଧ · ଆପଣଙ୍କ ଅନୁମତି ବିନା କିଛି ଦାଖଲ ହୁଏ ନାହିଁ",
@@ -137,6 +149,12 @@ export const STR: Record<Lang, Record<string, string>> = {
     unverified_note: "ପୋର୍ଟାଲ ପୁରୁଣା ଡ୍ରାଫ୍ଟ ବ୍ୟବହାର କରିଥାଇପାରେ। ପ୍ରତ୍ୟାଖ୍ୟାନ କରନ୍ତୁ, କିମ୍ବା ଠିକ୍ ଥିଲେ ହିଁ ଅନୁମତି ଦିଅନ୍ତୁ।",
     all_match: "✓ ସମୀକ୍ଷା ପୃଷ୍ଠାର ପ୍ରତ୍ୟେକ ତଥ୍ୟ ଆପଣଙ୍କ ନିଶ୍ଚିତ ତଥ୍ୟ ସହ ମେଳ ଖାଉଛି।",
     where_from: "ପ୍ରତ୍ୟେକ ତଥ୍ୟ କେଉଁଠାରୁ ଆସିଲା", approve: "ଅନୁମତି ଦେଇ ଦାଖଲ କରନ୍ତୁ", decline: "ପ୍ରତ୍ୟାଖ୍ୟାନ", continue: "ଜାରି ରଖନ୍ତୁ",
+    track_btn: "ଆବେଦନ ସ୍ଥିତି ଯାଞ୍ଚ କରନ୍ତୁ", tracking: "ସ୍ଥିତି ଯାଞ୍ଚ ହେଉଛି…", latest_status: "ସର୍ବଶେଷ ସ୍ଥିତି",
+    checked_at: "ଯାଞ୍ଚ ସମୟ", status_verified: "✓ ସ୍ଥିତି ପୋର୍ଟାଲର ଟ୍ରାକିଂ ପୃଷ୍ଠାରୁ ପଢ଼ାଯାଇଛି",
+    ai_saw: "AI କ'ଣ ଦେଖିଲା (ଲୁଚାଇ)", ai_saw_note: "ଶେଷ AI ଯୋଜନାର ସଠିକ୍ ଇନପୁଟ୍। ଆପଣଙ୍କ ବ୍ୟକ୍ତିଗତ ତଥ୍ୟ କେବଳ [ଟ୍ୟାଗ୍] ଭାବରେ ଦେଖାଯାଏ।",
+    missing_value_title: "ଆପଣ ଅନୁପସ୍ଥିତ ତଥ୍ୟ ଦେଇପାରିବେ କି?",
+    missing_value_note: "ଇଚ୍ଛାଧୀନ। ଆପଣଙ୍କ ଘୋଷିତ ତଥ୍ୟ ଭାବେ ଲିପିବଦ୍ଧ ହେବ; ନିଶ୍ଚିତ ନ ହେଲେ ଖାଲି ଛାଡ଼ନ୍ତୁ, ନିୟମ 'ଯାଞ୍ଚ ଆବଶ୍ୟକ' ରହିବ।",
+    reevaluate: "ଯୋଗ୍ୟତା ପୁଣି ଯାଞ୍ଚ କରନ୍ତୁ",
   },
 };
 
@@ -152,7 +170,7 @@ export const FIELDS: Record<Lang, Record<string, string>> = {
     board: "Board", year_of_passing: "Year of passing", school: "School",
     class10_percentage: "Class 10 percentage", class12_percentage: "Class 12 percentage",
     gender: "Gender", category: "Category", mobile: "Mobile number", institution: "Institution",
-    course: "Course", current_year: "Current year of study", study_mode: "Study mode",
+    course: "Course", current_year: "Current year of study", study_mode: "Study mode", class12_percentile: "Class 12 board percentile", course_level: "Course level (UG/PG)",
     family_income: "Annual family income (Rs, digits only)",
   },
   hi: {
@@ -160,7 +178,7 @@ export const FIELDS: Record<Lang, Record<string, string>> = {
     board: "बोर्ड", year_of_passing: "उत्तीर्ण वर्ष", school: "विद्यालय",
     class10_percentage: "कक्षा 10 प्रतिशत", class12_percentage: "कक्षा 12 प्रतिशत",
     gender: "लिंग", category: "वर्ग", mobile: "मोबाइल नंबर", institution: "संस्थान",
-    course: "पाठ्यक्रम", current_year: "अध्ययन का वर्तमान वर्ष", study_mode: "अध्ययन का तरीका",
+    course: "पाठ्यक्रम", current_year: "अध्ययन का वर्तमान वर्ष", study_mode: "अध्ययन का तरीका", class12_percentile: "कक्षा 12 बोर्ड पर्सेंटाइल", course_level: "पाठ्यक्रम स्तर (UG/PG)",
     family_income: "वार्षिक पारिवारिक आय (रुपये, केवल अंक)",
   },
   or: {
@@ -168,7 +186,7 @@ export const FIELDS: Record<Lang, Record<string, string>> = {
     board: "ବୋର୍ଡ", year_of_passing: "ଉତ୍ତୀର୍ଣ୍ଣ ବର୍ଷ", school: "ବିଦ୍ୟାଳୟ",
     class10_percentage: "ଦଶମ ଶ୍ରେଣୀ ପ୍ରତିଶତ", class12_percentage: "ଦ୍ୱାଦଶ ଶ୍ରେଣୀ ପ୍ରତିଶତ",
     gender: "ଲିଙ୍ଗ", category: "ବର୍ଗ", mobile: "ମୋବାଇଲ୍ ନମ୍ବର", institution: "ଶିକ୍ଷାନୁଷ୍ଠାନ",
-    course: "ପାଠ୍ୟକ୍ରମ", current_year: "ବର୍ତ୍ତମାନ ଅଧ୍ୟୟନ ବର୍ଷ", study_mode: "ଅଧ୍ୟୟନ ପଦ୍ଧତି",
+    course: "ପାଠ୍ୟକ୍ରମ", current_year: "ବର୍ତ୍ତମାନ ଅଧ୍ୟୟନ ବର୍ଷ", study_mode: "ଅଧ୍ୟୟନ ପଦ୍ଧତି", class12_percentile: "ଦ୍ୱାଦଶ ଶ୍ରେଣୀ ବୋର୍ଡ ପର୍ସେଣ୍ଟାଇଲ୍", course_level: "ପାଠ୍ୟକ୍ରମ ସ୍ତର (UG/PG)",
     family_income: "ବାର୍ଷିକ ପାରିବାରିକ ଆୟ (ଟଙ୍କା, କେବଳ ଅଙ୍କ)",
   },
 };

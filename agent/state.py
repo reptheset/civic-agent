@@ -79,7 +79,7 @@ class StepLog(BaseModel):
 class AgentEvent(BaseModel):
     run_id: str
     type: Literal["node", "observe", "decide", "act", "verify", "recover",
-                  "interrupt", "log", "error", "receipt", "done", "security"]
+                  "interrupt", "log", "error", "receipt", "done", "security", "track"]
     message: str
     data: dict = Field(default_factory=dict)
     ts: float = Field(default_factory=time.time)

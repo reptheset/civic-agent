@@ -8,7 +8,7 @@ import re
 from urllib.parse import urlparse
 
 from agent.browser.actions import ActionBlocked, execute, verify_click, verify_field
-from agent.browser.decide import decide
+from agent.browser.decide import build_prompt, decide
 from agent.browser.observe import observe
 from agent.config import ALLOWED_HOSTS, SCREENSHOT_DIR
 from agent.ledger import BadReference, MissingProvenance
@@ -128,7 +128,8 @@ async def run_browser_task(page, *, goal: str, profile: dict, documents: list, r
 
         actions = plan.actions[:12] or [Action(type="done", reason=plan.reason or "goal reached")]
         await _emit(emit, "decide", f"Plan with {len(actions)} action(s): {plan.reason}",
-                    plan=[a.model_dump() for a in actions], source=source)
+                    plan=[a.model_dump() for a in actions], source=source,
+                    prompt=(build_prompt(goal, obs, profile, documents, history)[:3000] if source == "model" else None))
         if actions[0].type == "done":
             return {"status": "done", "reason": actions[0].reason, "url": page.url, "history": history}
         if actions[0].type == "need_info":

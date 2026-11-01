@@ -174,9 +174,11 @@ function ConfirmProfile({ data, onRespond }: { data: any; onRespond: (v: any) =>
 }
 
 function Eligibility({ data, onRespond }: { data: any; onRespond: (v: any) => void }) {
-  const { lang, t } = useT();
+  const { lang, t, fl } = useT();
   const g = data.guideline ?? {};
   const results: any[] = data.results ?? [];
+  const askable: string[] = data.askable ?? [];
+  const [vals, setVals] = useState<Record<string, string>>({});
   const [expl, setExpl] = useState<any>(null);
   const [state, setState] = useState<"idle" | "loading" | "failed">("idle");
   const verdictStyle: Record<string, string> = {
@@ -235,6 +237,21 @@ function Eligibility({ data, onRespond }: { data: any; onRespond: (v: any) => vo
           );
         })}
       </ul>
+      {askable.length > 0 && (
+        <div className="rounded border border-slate-200 p-2">
+          <div className="text-sm font-semibold">{t("missing_value_title")}</div>
+          <p className="mb-2 text-xs text-slate-500">{t("missing_value_note")}</p>
+          {askable.map((k) => (
+            <div key={k} className="mb-2">
+              <label className="text-xs font-medium text-slate-600">{fl(k)}</label>
+              <input value={vals[k] ?? ""} onChange={(e) => setVals({ ...vals, [k]: e.target.value })}
+                className="mt-0.5 block w-full rounded border border-slate-300 px-2 py-1 text-sm" />
+            </div>
+          ))}
+          <button disabled={!Object.values(vals).some((v) => v.trim())} onClick={() => onRespond({ values: vals })}
+            className={`${BTN} w-full bg-slate-900 text-white`}>{t("reevaluate")}</button>
+        </div>
+      )}
       <div className="flex gap-2">
         <button onClick={() => onRespond({ proceed: true })} className={`${BTN} flex-1 bg-indigo-600 text-white`}>{t("proceed")}</button>
         <button onClick={() => onRespond({ proceed: false })} className={`${BTN} bg-slate-200`}>{t("stop")}</button>
@@ -328,7 +345,7 @@ function PausePanel({ data, onRespond }: { data: any; onRespond: (v: any) => voi
   }
 }
 
-function ReceiptCard({ r }: { r: any }) {
+function ReceiptCard({ r, track, onTrack, tracking }: { r: any; track?: any; onTrack: () => void; tracking: boolean }) {
   const { t } = useT();
   return (
     <Card title={t("receipt")}>
@@ -351,6 +368,21 @@ function ReceiptCard({ r }: { r: any }) {
         className="mt-3 block rounded bg-slate-900 px-3 py-2 text-center text-sm font-medium text-white">
         {t("download")}
       </a>
+      <button onClick={onTrack} disabled={tracking}
+        className={`${BTN} mt-2 w-full border border-slate-300 bg-white text-slate-900`}>
+        {tracking ? t("tracking") : t("track_btn")}
+      </button>
+      {track && (
+        <div className="mt-2 rounded border border-emerald-200 bg-emerald-50 p-2 text-xs">
+          <div className="text-slate-500">{t("latest_status")}</div>
+          <div className="text-sm font-semibold">{track.status ?? "—"}</div>
+          <div className={track.verified_on_page ? "text-emerald-700" : "text-red-700"}>
+            {track.verified_on_page ? t("status_verified") : t("id_missing")}
+          </div>
+          <div className="text-slate-500">{t("checked_at")}: {track.checked_at}</div>
+          <a href={`${API}/screenshots/${track.shot}`} target="_blank" rel="noreferrer" className="underline">screenshot</a>
+        </div>
+      )}
     </Card>
   );
 }
@@ -390,7 +422,7 @@ function Stepper({ stage, done }: { stage: number; done: boolean }) {
   );
 }
 
-function AgentView({ ev }: { ev: Ev | undefined }) {
+function AgentView({ ev, prompt }: { ev: Ev | undefined; prompt?: string }) {
   const { t } = useT();
   if (!ev) return null;
   return (
@@ -398,6 +430,13 @@ function AgentView({ ev }: { ev: Ev | undefined }) {
       <img src={`${API}/screenshots/${ev.data.shot}`} alt="Latest screenshot of the agent's browser"
         className="w-full rounded border border-slate-200" />
       <p className={`mt-2 text-xs ${ev.data.ok === false ? "text-red-700" : "text-slate-600"}`}>{ev.message}</p>
+      {prompt && (
+        <details className="mt-2 text-xs">
+          <summary className="cursor-pointer font-medium text-slate-700">{t("ai_saw")}</summary>
+          <p className="mt-1 text-slate-500">{t("ai_saw_note")}</p>
+          <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded bg-slate-900 p-2 text-[10px] text-slate-100">{prompt}</pre>
+        </details>
+      )}
     </Card>
   );
 }
@@ -417,6 +456,7 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recoverId, setRecoverId] = useState("");
+  const [tracking, setTracking] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const feedEnd = useRef<HTMLDivElement | null>(null);
   const t = (k: string) => STR[lang][k] ?? STR.en[k] ?? k;
@@ -464,6 +504,18 @@ export default function Home() {
     connect(id);
   }
 
+  async function trackStatus() {
+    if (!runId) return;
+    setTracking(true);
+    setError(null);
+    try {
+      const r = await fetch(`${API}/runs/${runId}/track`, { method: "POST" });
+      if (!r.ok) setError(`Tracking failed: ${await r.text()}`);
+    } finally {
+      setTracking(false);
+    }
+  }
+
   const lastInterrupt = useMemo(() => {
     for (let i = events.length - 1; i >= 0; i--) if (events[i].type === "interrupt") return i;
     return -1;
@@ -488,9 +540,11 @@ export default function Home() {
     replays: events.filter((e) => e.type === "decide" && e.data?.source === "skill").length,
   }), [events]);
   const receipt = events.find((e) => e.type === "receipt")?.data;
+  const track = useMemo(() => [...events].reverse().find((e) => e.type === "track")?.data, [events]);
   const finished = events.find((e) => e.type === "done" || e.message.startsWith("Workflow error"));
   const stage = useMemo(() => events.reduce((m, e) => Math.max(m, stageOf(e)), -1), [events]);
   const lastShot = useMemo(() => [...events].reverse().find((e) => e.type === "verify" && e.data?.shot), [events]);
+  const lastPrompt = useMemo(() => [...events].reverse().find((e) => e.type === "decide" && e.data?.prompt)?.data.prompt, [events]);
   const [now, setNow] = useState(0);
   useEffect(() => {
     if (!runId || finished) return;
@@ -592,8 +646,8 @@ export default function Home() {
             {!pending && runId && !finished && (
               <Card title={t("status")}><p className="animate-pulse text-sm text-slate-600">{t("working")}</p></Card>
             )}
-            {!receipt && <AgentView ev={lastShot} />}
-            {receipt && <ReceiptCard r={receipt} />}
+            {!receipt && <AgentView ev={lastShot} prompt={lastPrompt} />}
+            {receipt && <ReceiptCard r={receipt} track={track} onTrack={trackStatus} tracking={tracking} />}
             {finished && !receipt && <Card title={t("finished")}><p className="text-sm">{finished.message}</p></Card>}
           </section>
         </div>

@@ -240,3 +240,69 @@ async def explain(body: ExplainReq):
         if _script_ok(ex, rng):
             return ex.model_dump()
     raise HTTPException(502, f"The model did not answer in {lang} script; showing English only")
+
+
+# ---------- Application tracking after submission ----------
+from agent.browser.decide import redact
+from agent.browser.loop import run_browser_task
+from agent.config import SCREENSHOT_DIR
+from agent.graph import REVIEW_JS
+
+TRACK_GOAL = ("Check the status of an already submitted application. Open the Track Application page, "
+              "enter the application ID and the applicant's registered mobile number, and click the button that "
+              "checks the status. When the page shows the application's status, return done. "
+              "Do not log in and do not change anything.")
+
+
+class StatusExtract(BaseModel):
+    status: str
+
+
+@app.post("/runs/{run_id}/track")
+async def track_application(run_id: str):
+    snap = await GRAPH.aget_state(_cfg(run_id))
+    values = snap.values or {}
+    rec = values.get("receipt") or {}
+    app_id = rec.get("application_id")
+    if not app_id:
+        raise HTTPException(409, "No verified receipt for this run yet")
+    profile = dict(values.get("profile") or {})
+    profile["application_id"] = {"key": "application_id", "value": app_id, "confirmed": True,
+                                 "provenance": {"kind": "document", "document_type": "receipt", "confidence": 1.0}}
+    page_key = f"{run_id}-track"
+    page = await browsers.page_for(page_key)
+
+    async def emit(type_, message, data):
+        await bus.publish(run_id, type_, message, data)
+
+    await bus.publish(run_id, "node", f"Tracking application {app_id} on the portal")
+    try:
+        result = await run_browser_task(page, goal=TRACK_GOAL, profile=profile, documents=[], run_id=page_key,
+                                        start_url=values.get("portal_url") or TESTBED_URL, emit=emit, max_rounds=8)
+        if result["status"] != "done":
+            await bus.publish(run_id, "error", f"Tracking stopped: {result['reason']}")
+            raise HTTPException(502, result["reason"])
+        text = await page.inner_text("body")
+        status = None
+        try:
+            ex = await asyncio.to_thread(
+                generate_json,
+                "From this application tracking page, extract the application's current status exactly as written."
+                "\n<<<\n" + redact(text[:3000], profile) + "\n>>>", StatusExtract)
+            status = ex.status.strip()
+        except LLMUnavailable:
+            pass
+        if not status or status not in text:      # never trust a status that is not on the page
+            rows = await page.evaluate(REVIEW_JS)
+            status = next((val for lab, val in rows if str(lab).strip().lower() == "status"), None)
+        verified = bool(status and status in text)
+        shot_rel = f"{page_key}/track.png"
+        (SCREENSHOT_DIR / page_key).mkdir(parents=True, exist_ok=True)
+        await page.screenshot(path=str(SCREENSHOT_DIR / shot_rel), full_page=True)
+        data = {"application_id": app_id, "status": status, "verified_on_page": verified,
+                "checked_at": __import__("time").strftime("%Y-%m-%d %H:%M:%S"), "shot": shot_rel}
+        await bus.publish(run_id, "track",
+                          f"Status: {status} ({'verified on page' if verified else 'NOT verified'})", data)
+        return data
+    finally:
+        await browsers.close(page_key)
