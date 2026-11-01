@@ -18,7 +18,8 @@ Rules:
 6. Fill every required empty field on the current page before clicking its save/continue button.
    Do not refill fields marked [filled] unless an error mentions them.
 7. If the page shows an error, fix its cause (e.g. use a different format) instead of repeating the same action.
-8. Never click a final submit button. When the Review page is shown, return type "done".
+8. Never click a final submit button unless the GOAL says the user has APPROVED submission.
+   Otherwise, when the Review page is shown, return type "done".
 9. Return a plan with every action needed on the CURRENT page, in order. At most one click, and it
    must be the last action. "done" or "ask_human" must be the only action in the plan.
    Keep each reason to one short sentence."""

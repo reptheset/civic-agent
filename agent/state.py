@@ -102,6 +102,8 @@ class RunState(TypedDict, total=False):
     status: str
     receipt: Optional[dict]
     error: Optional[str]
+    phase: str                        # 'fill' or 'submit'
+    review_rows: list
 
 
 class ActionPlan(BaseModel):
