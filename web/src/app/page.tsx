@@ -509,6 +509,7 @@ function fmt(sec: number) {
 export default function Home() {
   const [lang, setLang] = useState<Lang>("en");
   const [files, setFiles] = useState<File[]>([]);
+  const [schemeUrl, setSchemeUrl] = useState("");
   const [runId, setRunId] = useState<string | null>(null);
   const [events, setEvents] = useState<Ev[]>([]);
   const [answered, setAnswered] = useState(-1);
@@ -541,6 +542,7 @@ export default function Home() {
       const fd = new FormData();
       files.forEach((f) => fd.append("files", f));
       fd.append("scheme", "csss");
+      if (schemeUrl.trim()) fd.append("scheme_url", schemeUrl.trim());
       const r = await fetch(`${API}/runs/upload`, { method: "POST", body: fd });
       if (!r.ok) throw new Error(await r.text());
       const { run_id } = await r.json();
@@ -662,6 +664,11 @@ export default function Home() {
                 className="block w-full text-sm file:mr-3 file:rounded file:border-0 file:bg-slate-900 file:px-3 file:py-1.5 file:text-white" />
               {files.length > 0 && <ul className="mt-2 text-xs text-slate-600">{files.map((f) => <li key={f.name}>• {f.name}</li>)}</ul>}
               <p className="mt-3 text-xs text-slate-500">{t("scheme_note")}</p>
+              <label className="mt-2 block text-xs font-medium text-slate-600">{t("scheme_url_label")}</label>
+              <input value={schemeUrl} onChange={(e) => setSchemeUrl(e.target.value)} type="url"
+                placeholder="https://www.myscheme.gov.in/schemes/..."
+                className="mt-1 block w-full rounded border border-slate-300 px-2 py-1 text-xs" />
+              <p className="mt-1 text-[10px] text-slate-400">{t("scheme_url_note")}</p>
               <button onClick={start} disabled={!files.length || busy} className={`${BTN} mt-3 w-full bg-indigo-600 text-white`}>
                 {busy ? t("starting") : t("start")}
               </button>

@@ -25,6 +25,19 @@ SCHEMES = {
     },
 }
 
+OFFICIAL_SUFFIXES = (".gov.in", ".nic.in")
+
+
+def scheme_from_url(url: str) -> dict:
+    """A citizen-supplied scheme page. Only official Indian government sites over https are accepted."""
+    from urllib.parse import urlparse
+    u = urlparse((url or "").strip())
+    host = (u.hostname or "").lower()
+    if u.scheme != "https" or not host.endswith(OFFICIAL_SUFFIXES):
+        raise ValueError("Only official government pages (https, ending in .gov.in or .nic.in) are accepted")
+    return {"name": f"Scheme page on {host}", "url": u.geturl()}
+
+
 # Profile fields a rule may refer to. Anything else becomes "other" (manual check).
 RULE_FIELDS = {
     "family_income": "annual family income in rupees",

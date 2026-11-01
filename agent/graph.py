@@ -121,7 +121,7 @@ async def confirm_profile(state: RunState):
 
 async def check_eligibility(state: RunState):
     run_id = state["run_id"]
-    scheme = SCHEMES[state.get("scheme") or "csss"]
+    scheme = state.get("scheme_source") or SCHEMES[state.get("scheme") or "csss"]
     await bus.publish(run_id, "node", f"Checking eligibility: {scheme['name']}")
     try:
         source = await fetch_guideline(browsers.browser, scheme["url"])

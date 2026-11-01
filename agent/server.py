@@ -168,9 +168,17 @@ from agent.config import UPLOAD_DIR
 
 
 @app.post("/runs/upload")
-async def start_from_documents(files: list[UploadFile] = File(...), scheme: str = Form("csss")):
+async def start_from_documents(files: list[UploadFile] = File(...), scheme: str = Form("csss"),
+                               scheme_url: str = Form("")):
     if not files:
         raise HTTPException(400, "Upload at least one document")
+    source = None
+    if scheme_url.strip():
+        from agent.eligibility import scheme_from_url
+        try:
+            source = scheme_from_url(scheme_url)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
     run_id = uuid.uuid4().hex[:8]
     folder = UPLOAD_DIR / run_id
     folder.mkdir(parents=True, exist_ok=True)
@@ -185,6 +193,8 @@ async def start_from_documents(files: list[UploadFile] = File(...), scheme: str 
     state = {"run_id": run_id, "service_request": "Scholarship application", "scheme": scheme,
              "profile": {}, "documents": documents, "portal_url": TESTBED_URL, "step_log": [],
              "status": "starting", "phase": "fill"}
+    if source:
+        state["scheme_source"] = source
     _launch(run_id, state)
     return {"run_id": run_id}
 

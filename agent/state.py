@@ -107,6 +107,7 @@ class RunState(TypedDict, total=False):
     verdict: str
     guideline: dict
     scheme: str
+    scheme_source: dict               # a citizen-supplied official scheme page (name, url)
 
 
 class ActionPlan(BaseModel):
