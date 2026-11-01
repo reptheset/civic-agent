@@ -75,6 +75,7 @@ async def _drive(run_id: str, payload):
     else:
         status = result.get("status", "finished") if isinstance(result, dict) else "finished"
         RUNS[run_id]["status"] = status
+        await browsers.close(run_id)
         await bus.publish(run_id, "done", f"Workflow finished: {status}",
                           {"receipt": result.get("receipt") if isinstance(result, dict) else None})
 

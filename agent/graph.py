@@ -184,6 +184,10 @@ async def submit(state: RunState):
 
 
 async def human_gate(state: RunState):
+    try:   # make sure the citizen sees THIS run's window, not an older one
+        await (await browsers.page_for(state["run_id"])).bring_to_front()
+    except Exception:
+        pass
     interrupt({"kind": "human_step", "reason": state.get("error") or "A human step is needed"})
     return {"status": "resumed"}
 

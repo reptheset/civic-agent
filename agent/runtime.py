@@ -53,6 +53,14 @@ class BrowserManager:
             self.pages[run_id] = page
         return page
 
+    async def close(self, run_id: str):
+        page = self.pages.pop(run_id, None)
+        if page is not None:
+            try:
+                await page.context.close()
+            except Exception:
+                pass
+
     async def stop(self):
         if self._browser:
             await self._browser.close()
