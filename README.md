@@ -150,6 +150,3 @@ Without these variables everything defaults to local development (visible browse
 
 Filling real government portals for genuine applicants (same agent, the portal added to the allow-list); more services (licence renewal, subsidy claims); DigiLocker integration; a hosted browser with a live view for the citizen; shared portal skills across citizens (labels and references only, never values); scheduled status tracking with consent.
 
----
-
-Made with ❤️ by Ashu & Aviral
