@@ -375,3 +375,27 @@ async def toggle_portal_fault(name: str):
         raise HTTPException(404, "Unknown fault")
     portal_db.set_fault(name, not portal_db.fault_on(name))
     return {"faults": portal_db.all_faults()}
+
+
+# ---------- Which documents does this scheme need? (read live from the official page) ----------
+class DocsReq(BaseModel):
+    scheme_url: str = ""
+
+
+@app.post("/scheme/documents")
+async def scheme_documents(body: DocsReq):
+    from agent.eligibility import SCHEMES, extract_documents, fetch_guideline, scheme_from_url
+    try:
+        scheme = scheme_from_url(body.scheme_url) if body.scheme_url.strip() else SCHEMES["csss"]
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    try:
+        source = await fetch_guideline(browsers.browser, scheme["url"])
+    except Exception as e:
+        raise HTTPException(502, f"Could not fetch the official page: {str(e)[:150]}")
+    try:
+        docs, dropped = await asyncio.to_thread(extract_documents, source)
+    except LLMUnavailable:
+        raise HTTPException(503, "Model unavailable, try again")
+    return {"url": source["url"], "fetched_at": source["fetched_at"], "sha256": source["sha256"],
+            "documents": docs, "dropped": dropped}

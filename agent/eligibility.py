@@ -147,3 +147,28 @@ def evaluate(rules: list[EligibilityRule], values: dict[str, str]) -> tuple[str,
     else:
         verdict = "eligible"
     return verdict, results
+
+
+class RequiredDoc(BaseModel):
+    name: str
+    quote: str
+
+
+class DocList(BaseModel):
+    documents: list[RequiredDoc]
+
+
+def extract_documents(source: dict) -> tuple[list[dict], int]:
+    """The documents the official page asks for. Kept only if the quote is really on the page."""
+    prompt = f"""From the official scheme page text below, list every DOCUMENT the applicant must provide
+(the "Documents Required" section or equivalent). For each, give a short plain name and the exact
+sentence or bullet from the text as quote, copied word for word. Only documents stated in the text.
+
+OFFICIAL PAGE TEXT:
+<<<
+{source["text"][:12000]}
+>>>"""
+    found = generate_json(prompt, DocList).documents
+    norm = _norm(source["text"])
+    kept = [{"name": d.name, "quote": d.quote} for d in found if d.quote and _norm(d.quote) and _norm(d.quote) in norm]
+    return kept, len(found) - len(kept)

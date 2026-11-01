@@ -510,6 +510,26 @@ export default function Home() {
   const [lang, setLang] = useState<Lang>("en");
   const [files, setFiles] = useState<File[]>([]);
   const [schemeUrl, setSchemeUrl] = useState("");
+  const [docsInfo, setDocsInfo] = useState<any>(null);
+  const [docsBusy, setDocsBusy] = useState(false);
+
+  async function checkDocs() {
+    setDocsBusy(true);
+    setError(null);
+    setDocsInfo(null);
+    try {
+      const r = await fetch(`${API}/scheme/documents`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scheme_url: schemeUrl.trim() }),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      setDocsInfo(await r.json());
+    } catch (e: any) {
+      setError(`Could not read the documents list: ${e.message}`);
+    } finally {
+      setDocsBusy(false);
+    }
+  }
   const [runId, setRunId] = useState<string | null>(null);
   const [events, setEvents] = useState<Ev[]>([]);
   const [answered, setAnswered] = useState(-1);
@@ -669,6 +689,25 @@ export default function Home() {
                 placeholder="https://www.myscheme.gov.in/schemes/..."
                 className="mt-1 block w-full rounded border border-slate-300 px-2 py-1 text-xs" />
               <p className="mt-1 text-[10px] text-slate-400">{t("scheme_url_note")}</p>
+              <button onClick={checkDocs} disabled={docsBusy}
+                className={`${BTN} mt-2 w-full border border-slate-300 bg-white text-slate-900`}>
+                {docsBusy ? t("docs_busy") : t("docs_btn")}
+              </button>
+              {docsInfo && (
+                <div className="mt-2 rounded border border-emerald-200 bg-emerald-50 p-2 text-xs text-slate-800">
+                  <div className="font-semibold">{t("docs_title")}</div>
+                  {docsInfo.documents.length === 0 && <div className="text-slate-600">{t("docs_none")}</div>}
+                  <ul className="mt-1 space-y-1">
+                    {docsInfo.documents.map((d: any, i: number) => (
+                      <li key={i}><span className="font-medium">• {d.name}</span>
+                        <div className="pl-3 text-[10px] italic text-slate-500">“{d.quote}”</div></li>
+                    ))}
+                  </ul>
+                  <div className="mt-1 text-[10px] text-slate-500">
+                    {t("rules_from")} {docsInfo.url} · {docsInfo.fetched_at} · SHA-256 {String(docsInfo.sha256).slice(0, 12)}… {t("quote_checked")}
+                  </div>
+                </div>
+              )}
               <button onClick={start} disabled={!files.length || busy} className={`${BTN} mt-3 w-full bg-indigo-600 text-white`}>
                 {busy ? t("starting") : t("start")}
               </button>
