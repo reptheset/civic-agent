@@ -191,7 +191,10 @@ async def start_from_documents(files: list[UploadFile] = File(...), scheme: str 
 # ---------- Plain-language explanations in the citizen's language ----------
 from agent.llm import LLMUnavailable, generate_json
 
-LANGS = {"hi": "Hindi", "or": "Odia"}
+LANGS = {
+    "hi": ("Hindi", "Devanagari script (for example: \u092f\u094b\u091c\u0928\u093e)", (0x0900, 0x097F)),
+    "or": ("Odia", "Odia script (for example: \u0b2f\u0b4b\u0b1c\u0b28\u0b3e)", (0x0B00, 0x0B7F)),
+}
 
 
 class ExplainReq(BaseModel):
@@ -205,20 +208,35 @@ class Explanation(BaseModel):
     rules: list[str]
 
 
+def _script_ok(ex: "Explanation", rng: tuple) -> bool:
+    """At least 90% of non-ASCII letters must be in the requested script's Unicode block."""
+    text = ex.summary + " ".join(ex.rules)
+    letters = [c for c in text if c.isalpha() and ord(c) > 127]
+    if not letters:
+        return False
+    good = sum(rng[0] <= ord(c) <= rng[1] for c in letters)
+    return good / len(letters) >= 0.9
+
+
 @app.post("/explain")
 async def explain(body: ExplainReq):
-    lang = LANGS.get(body.language)
-    if not lang:
+    if body.language not in LANGS:
         raise HTTPException(400, "Unsupported language")
+    lang, script, rng = LANGS[body.language]
     lines = "\n".join(f"- {r.get('reason', '')} (official rule: {(r.get('rule') or {}).get('quote', '')})"
                       for r in body.results)
-    prompt = (f"Explain this scholarship eligibility result to a student in simple, polite {lang}.\n"
+    prompt = (f"Explain this scholarship eligibility result to a student in simple, polite {lang}, "
+              f"written ONLY in {script}. Never use Urdu, Arabic, Bengali or any other script. "
+              f"Field names like family_income and numbers may stay in English.\n"
               f"Verdict: {body.verdict}\nRule results:\n{lines}\n\n"
-              f"Return 'summary' (at most 2 sentences) and 'rules': exactly one short {lang} line per rule, "
+              f"Return 'summary' (at most 2 sentences) and 'rules': exactly one short line per rule, "
               f"in the same order. Keep every number exactly as given. Do not add rules, advice or facts "
               f"that are not above. 'needs review' means the data needed to decide is missing.")
-    try:
-        ex = await asyncio.to_thread(generate_json, prompt, Explanation)
-    except LLMUnavailable:
-        raise HTTPException(503, "Model unavailable, try again")
-    return ex.model_dump()
+    for _ in range(2):
+        try:
+            ex = await asyncio.to_thread(generate_json, prompt, Explanation)
+        except LLMUnavailable:
+            raise HTTPException(503, "Model unavailable, try again")
+        if _script_ok(ex, rng):
+            return ex.model_dump()
+    raise HTTPException(502, f"The model did not answer in {lang} script; showing English only")
