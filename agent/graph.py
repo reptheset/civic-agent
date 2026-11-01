@@ -1,4 +1,8 @@
-"""The LangGraph workflow: fill -> (human / missing-info pauses) -> approval -> submit -> receipt."""
+"""The LangGraph workflow.
+
+intake -> confirm_profile (pause) -> check_eligibility -> eligibility_gate (pause) -> fill
+-> human/info pauses as needed -> approval (pause) -> submit -> receipt
+"""
 import asyncio
 import hashlib
 import json
@@ -11,7 +15,9 @@ from pydantic import BaseModel
 
 from agent.browser.decide import redact
 from agent.browser.loop import run_browser_task
-from agent.config import RECEIPT_DIR
+from agent.config import MIN_AUTO_CONFIDENCE, RECEIPT_DIR
+from agent.documents import build_profile, read_document
+from agent.eligibility import SCHEMES, evaluate, extract_rules, fetch_guideline
 from agent.llm import LLMUnavailable, generate_json
 from agent.runtime import browsers, bus
 from agent.state import RunState
@@ -23,6 +29,18 @@ SUBMIT_GOAL = ("The user has reviewed the application and APPROVED final submiss
                "tick the declaration checkbox and click the Final Submit button. When the Acknowledgement "
                "page showing an Application ID is displayed, return done.")
 
+# Details that are not printed on marksheets; the user declares them.
+DECLARED_FIELDS = [
+    ("gender", "Gender", ["Male", "Female", "Transgender"]),
+    ("category", "Category", ["General", "OBC", "SC", "ST", "EWS"]),
+    ("mobile", "Mobile number", None),
+    ("institution", "Institution", None),
+    ("course", "Course", ["B.Tech", "B.E.", "B.Sc", "B.Com", "B.A.", "M.Tech", "Other"]),
+    ("current_year", "Current year of study", ["1", "2", "3", "4", "5"]),
+    ("study_mode", "Study mode", ["regular", "correspondence", "distance"]),
+    ("family_income", "Annual family income (Rs, digits only)", None),
+]
+
 
 def _emitter(run_id: str):
     async def emit(type_, message, data):
@@ -30,10 +48,118 @@ def _emitter(run_id: str):
     return emit
 
 
+def _source(f: dict) -> str:
+    prov = f["provenance"]
+    return prov["kind"] + (f" ({prov['document_type']})" if prov.get("document_type") else "")
+
+
+def _public_fields(profile: dict) -> list[dict]:
+    return [{"key": k, "value": f["value"], "source": _source(f),
+             "confidence": f["provenance"].get("confidence", 1.0), "confirmed": f.get("confirmed", False)}
+            for k, f in sorted(profile.items())]
+
+
+# ---------- Documents & profile ----------
+
+async def intake(state: RunState):
+    if state.get("profile"):
+        return {}                                    # profile supplied directly (saved-profile runs)
+    run_id = state["run_id"]
+    await bus.publish(run_id, "node", "Reading the citizen's documents")
+    docs = []
+    for d in state["documents"]:
+        await bus.publish(run_id, "log", f"Reading {d['filename']}")
+        r = await asyncio.to_thread(read_document, d["path"])
+        r["path"], r["filename"] = d["path"], d["filename"]
+        docs.append(r)
+        await bus.publish(run_id, "observe",
+                          f"{r['doc_type']}: {len(r['fields'])} fields "
+                          f"({'checked against text layer' if r['has_text_layer'] else 'image only'})",
+                          {"doc_type": r["doc_type"], "fields": [
+                              {"key": f["key"], "confidence": f["confidence"], "check": f["check"]}
+                              for f in r["fields"]]})
+    profile, mismatches = build_profile(docs)
+    if mismatches:
+        await bus.publish(run_id, "verify", f"{len(mismatches)} mismatch(es) across documents",
+                          {"fields": [m["field"] for m in mismatches]})
+    documents = [{"id": d["doc_type"], "filename": d["filename"], "path": d["path"], "doc_type": d["doc_type"],
+                  "extracted": {f["key"]: f["value"] for f in d["fields"]}} for d in docs]
+    return {"documents": documents, "profile": profile, "mismatches": mismatches}
+
+
+async def confirm_profile(state: RunState):
+    profile = {k: dict(v) for k, v in state["profile"].items()}
+    uncertain = [k for k, f in profile.items()
+                 if not f.get("confirmed") and f["provenance"].get("confidence", 1.0) < MIN_AUTO_CONFIDENCE]
+    missing = [{"key": k, "label": label, "options": opts} for k, label, opts in DECLARED_FIELDS if k not in profile]
+    mismatches = state.get("mismatches") or []
+    if not uncertain and not missing and not mismatches:
+        return {}
+    answer = interrupt({"kind": "confirm_profile", "fields": _public_fields(profile),
+                        "uncertain": uncertain, "mismatches": mismatches, "missing": missing})
+    values = answer.get("values", {}) if isinstance(answer, dict) else {}
+    changed = 0
+    for key, value in values.items():
+        value = str(value).strip()
+        if not value:
+            continue
+        if key in profile and profile[key]["value"] == value:
+            profile[key]["confirmed"] = True          # user confirmed the document's own value
+        else:
+            profile[key] = {"key": key, "value": value, "confirmed": True,
+                            "provenance": {"kind": "user", "confidence": 1.0}}
+        changed += 1
+    await bus.publish(state["run_id"], "log", f"User confirmed or provided {changed} value(s)")
+    return {"profile": profile, "mismatches": []}
+
+
+# ---------- Eligibility ----------
+
+async def check_eligibility(state: RunState):
+    run_id = state["run_id"]
+    scheme = SCHEMES[state.get("scheme") or "csss"]
+    await bus.publish(run_id, "node", f"Checking eligibility: {scheme['name']}")
+    try:
+        source = await fetch_guideline(browsers.browser, scheme["url"])
+    except Exception as e:
+        await bus.publish(run_id, "error", f"Could not fetch the official page: {str(e)[:150]}")
+        return {"verdict": "needs_review", "eligibility": [],
+                "guideline": {"name": scheme["name"], "url": scheme["url"], "error": str(e)[:200]}}
+    await bus.publish(run_id, "observe", f"Fetched official page ({len(source['text'])} chars) at {source['fetched_at']}",
+                      {"url": source["url"], "sha256": source["sha256"]})
+    try:
+        rules, dropped = await asyncio.to_thread(extract_rules, source)
+    except LLMUnavailable as e:
+        await bus.publish(run_id, "error", f"Model unavailable for rule extraction: {e}")
+        rules, dropped = [], []
+    if dropped:
+        await bus.publish(run_id, "security", f"Dropped {len(dropped)} rule(s) whose quote was not in the official text",
+                          {"dropped": [f"{d.field} {d.op} {d.value}" for d in dropped]})
+    values = {k: f["value"] for k, f in state["profile"].items()}
+    verdict, results = evaluate(rules, values)
+    await bus.publish(run_id, "verify", f"Eligibility verdict: {verdict} ({len(rules)} rules with verified quotes)",
+                      {"verdict": verdict})
+    return {"verdict": verdict, "eligibility": [r.model_dump() for r in results],
+            "guideline": {"name": scheme["name"], "url": source["url"], "fetched_at": source["fetched_at"],
+                          "sha256": source["sha256"], "dropped": len(dropped)}}
+
+
+async def eligibility_gate(state: RunState):
+    if state.get("verdict") == "eligible":
+        return {"status": "proceed"}
+    answer = interrupt({"kind": "eligibility", "verdict": state.get("verdict"),
+                        "results": state.get("eligibility", []), "guideline": state.get("guideline", {})})
+    proceed = isinstance(answer, dict) and answer.get("proceed") is True
+    await bus.publish(state["run_id"], "log",
+                      "User chose to proceed despite the eligibility result" if proceed else "User stopped the application")
+    return {"status": "proceed" if proceed else "stopped_by_user"}
+
+
+# ---------- Browser phases ----------
+
 async def _run_browser(state: RunState, goal: str, allow_submit: bool):
     run_id = state["run_id"]
     page = await browsers.page_for(run_id)
-    # A blank page means a new browser (first run, or after a server restart): open the portal.
     start = state["portal_url"] if page.url in ("about:blank", "") else None
     old = list(state.get("step_log", []))
     history = list(old)
@@ -42,8 +168,6 @@ async def _run_browser(state: RunState, goal: str, allow_submit: bool):
                                     allow_final_submit=allow_submit, history=history)
     return result, history[len(old):]
 
-
-# ---------- Nodes ----------
 
 async def fill(state: RunState):
     await bus.publish(state["run_id"], "node", "Filling the application form")
@@ -63,7 +187,9 @@ async def human_gate(state: RunState):
 
 
 async def info_gate(state: RunState):
-    answer = interrupt({"kind": "missing_info", "reason": state.get("error"),
+    reason = state.get("error") or ""
+    m = re.search(r"'(\w+)'", reason)
+    answer = interrupt({"kind": "missing_info", "reason": reason, "suggested_key": m.group(1) if m else "",
                         "known_fields": sorted(state["profile"])})
     profile = dict(state["profile"])
     if isinstance(answer, dict) and answer.get("key") and answer.get("value"):
@@ -85,11 +211,12 @@ async def approval(state: RunState):
         rows = await page.evaluate(REVIEW_JS)
     except Exception:
         rows = []
-    sources = {}
-    for key, f in state["profile"].items():
-        prov = f["provenance"]
-        sources[key] = prov["kind"] + (f" ({prov['document_type']})" if prov.get("document_type") else "")
-    decision = interrupt({"kind": "approval", "rows": rows, "sources": sources})
+    if any(str(r[0]).strip().lower() == "application id" for r in rows):
+        await bus.publish(state["run_id"], "security",
+                          "Safety violation: the portal shows an acknowledgement before approval. Stopping.")
+        return {"status": "safety_stop", "review_rows": rows}
+    decision = interrupt({"kind": "approval", "rows": rows,
+                          "sources": {k: _source(f) for k, f in state["profile"].items()}})
     approved = decision.get("approved") is True if isinstance(decision, dict) else decision is True
     await bus.publish(state["run_id"], "log", "User approved submission" if approved else "User declined submission")
     return {"status": "approved" if approved else "cancelled", "review_rows": rows}
@@ -108,7 +235,6 @@ async def receipt(state: RunState):
     page = await browsers.page_for(run_id)
     await bus.publish(run_id, "node", "Capturing the acknowledgement receipt")
     text = await page.inner_text("body")
-
     app_id, status, method = None, "", "model"
     try:
         ext = await asyncio.to_thread(
@@ -119,25 +245,19 @@ async def receipt(state: RunState):
         app_id, status = ext.application_id.strip(), ext.status.strip()
     except LLMUnavailable:
         pass
-    if not app_id or app_id not in text:          # never trust an ID that is not on the page
+    if not app_id or app_id not in text:
         m = ID_PATTERN.search(text)
         app_id, method = (m.group(1) if m else None), "pattern"
     verified = bool(app_id and app_id in text)
-
     shot = RECEIPT_DIR / f"{run_id}_ack.png"
     await page.screenshot(path=str(shot), full_page=True)
     rec = {
-        "run_id": run_id,
-        "application_id": app_id,
-        "status": status,
-        "verified_on_page": verified,
-        "extraction_method": method,
-        "url": page.url,
-        "screenshot": str(shot),
+        "run_id": run_id, "application_id": app_id, "status": status, "verified_on_page": verified,
+        "extraction_method": method, "url": page.url, "screenshot": str(shot),
         "screenshot_sha256": hashlib.sha256(shot.read_bytes()).hexdigest(),
         "captured_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "steps_taken": len(state.get("step_log", [])),
-        "review_rows": state.get("review_rows", []),
+        "steps_taken": len(state.get("step_log", [])), "review_rows": state.get("review_rows", []),
+        "eligibility_verdict": state.get("verdict"), "guideline": state.get("guideline", {}),
     }
     (RECEIPT_DIR / f"{run_id}.json").write_text(json.dumps(rec, indent=2))
     await bus.publish(run_id, "receipt",
@@ -146,6 +266,10 @@ async def receipt(state: RunState):
 
 
 # ---------- Routing ----------
+
+def after_gate(state: RunState):
+    return "fill" if state.get("status") == "proceed" else END
+
 
 def after_browser(state: RunState):
     s = state["status"]
@@ -168,10 +292,16 @@ def after_approval(state: RunState):
 
 def build_graph(checkpointer):
     g = StateGraph(RunState)
-    for name, fn in [("fill", fill), ("submit", submit), ("human_gate", human_gate),
-                     ("info_gate", info_gate), ("approval", approval), ("receipt", receipt)]:
+    for name, fn in [("intake", intake), ("confirm_profile", confirm_profile),
+                     ("check_eligibility", check_eligibility), ("eligibility_gate", eligibility_gate),
+                     ("fill", fill), ("submit", submit), ("human_gate", human_gate), ("info_gate", info_gate),
+                     ("approval", approval), ("receipt", receipt)]:
         g.add_node(name, fn)
-    g.add_edge(START, "fill")
+    g.add_edge(START, "intake")
+    g.add_edge("intake", "confirm_profile")
+    g.add_edge("confirm_profile", "check_eligibility")
+    g.add_edge("check_eligibility", "eligibility_gate")
+    g.add_conditional_edges("eligibility_gate", after_gate, ["fill", END])
     g.add_conditional_edges("fill", after_browser, ["approval", "human_gate", "info_gate", END])
     g.add_conditional_edges("submit", after_browser, ["receipt", "human_gate", "info_gate", END])
     g.add_conditional_edges("human_gate", back_to_phase, ["fill", "submit"])

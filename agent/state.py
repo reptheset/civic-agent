@@ -57,7 +57,7 @@ class RuleResult(BaseModel):
 # ---------- Browser actions ----------
 
 class Action(BaseModel):
-    type: Literal["fill", "select", "click", "check", "upload", "wait", "ask_human", "done"]
+    type: Literal["fill", "select", "click", "check", "upload", "wait", "ask_human", "need_info", "done"]
     element_id: Optional[int] = None
     value_ref: Optional[str] = None   # e.g. "profile.dob" -- never a raw value
     reason: str = ""
@@ -104,6 +104,9 @@ class RunState(TypedDict, total=False):
     error: Optional[str]
     phase: str                        # 'fill' or 'submit'
     review_rows: list
+    verdict: str
+    guideline: dict
+    scheme: str
 
 
 class ActionPlan(BaseModel):

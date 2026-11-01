@@ -54,6 +54,8 @@ INTERRUPT_TEXT = {
     "human_step": "Waiting for you: complete the step in the browser window",
     "missing_info": "Waiting for you: information is missing",
     "approval": "Waiting for your approval before final submission",
+    "confirm_profile": "Waiting for you: please confirm your details",
+    "eligibility": "Waiting for you: eligibility needs your decision",
 }
 
 
@@ -155,3 +157,31 @@ async def events(ws: WebSocket, run_id: str):
         pass
     finally:
         bus.unsubscribe(run_id, q)
+
+
+# ---------- Start a run from uploaded documents ----------
+import shutil
+from fastapi import File, Form, UploadFile
+from agent.config import UPLOAD_DIR
+
+
+@app.post("/runs/upload")
+async def start_from_documents(files: list[UploadFile] = File(...), scheme: str = Form("csss")):
+    if not files:
+        raise HTTPException(400, "Upload at least one document")
+    run_id = uuid.uuid4().hex[:8]
+    folder = UPLOAD_DIR / run_id
+    folder.mkdir(parents=True, exist_ok=True)
+    documents = []
+    for f in files:
+        name = "".join(c if c.isalnum() or c in "._-" else "_" for c in (f.filename or "document"))
+        dest = folder / name
+        with dest.open("wb") as out:
+            shutil.copyfileobj(f.file, out)
+        documents.append({"filename": name, "path": str(dest)})
+    RUNS[run_id] = {"status": "starting", "pending": None}
+    state = {"run_id": run_id, "service_request": "Scholarship application", "scheme": scheme,
+             "profile": {}, "documents": documents, "portal_url": TESTBED_URL, "step_log": [],
+             "status": "starting", "phase": "fill"}
+    _launch(run_id, state)
+    return {"run_id": run_id}

@@ -105,16 +105,20 @@ async def run_browser_task(page, *, goal: str, profile: dict, documents: list, r
             await _emit(emit, "error", f"Model unavailable: {e}")
             return {"status": "failed", "reason": "model unavailable", "url": page.url, "history": history}
 
-        actions = plan.actions[:12] or [Action(type="wait", reason="empty plan")]
+        actions = plan.actions[:12] or [Action(type="done", reason=plan.reason or "goal reached")]
         await _emit(emit, "decide", f"Plan with {len(actions)} action(s): {plan.reason}",
                     plan=[a.model_dump() for a in actions])
         if actions[0].type == "done":
             return {"status": "done", "reason": actions[0].reason, "url": page.url, "history": history}
+        if actions[0].type == "need_info":
+            key = (actions[0].value_ref or "").split("|")[0].replace("profile.", "") or "unknown"
+            return {"status": "needs_info", "reason": f"No value on record for '{key}': {actions[0].reason}",
+                    "url": page.url, "history": history}
         if actions[0].type == "ask_human":
             return {"status": "needs_human", "reason": actions[0].reason, "url": page.url, "history": history}
 
         for action in actions:
-            if action.type in ("done", "ask_human"):
+            if action.type in ("done", "ask_human", "need_info"):
                 break                       # handled on the next round, after re-observing
             step = len(history) + 1
             await _emit(emit, "act", f"{action.type} el={action.element_id} ref={action.value_ref} - {action.reason}")

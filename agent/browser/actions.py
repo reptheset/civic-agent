@@ -27,6 +27,8 @@ async def execute(page, action: Action, obs: dict, profile: dict, documents: lis
     if action.type == "wait":
         await page.wait_for_timeout(1500)
         return None
+    if page.url != obs["url"]:
+        raise ActionBlocked("The page changed since it was observed; re-observing before acting")
     el = _element(obs, action.element_id)
     if el is None:
         raise ActionBlocked(f"Element {action.element_id} is not on the current page")
@@ -59,8 +61,15 @@ async def execute(page, action: Action, obs: dict, profile: dict, documents: lis
         return None
 
     if action.type == "click":
-        if FINAL_SUBMIT.search(el["label"]) and not allow_final_submit:
+        try:
+            live = await loc.evaluate(
+                "e => (e.innerText || e.value || e.getAttribute('aria-label') || '').trim()", timeout=2000)
+        except Exception:
+            raise ActionBlocked(f"Element {action.element_id} is no longer on the page; re-observing")
+        if (FINAL_SUBMIT.search(el["label"]) or FINAL_SUBMIT.search(live)) and not allow_final_submit:
             raise ActionBlocked("Final submission requires the user's explicit approval")
+        if _norm(live)[:40] != _norm(el["label"])[:40]:
+            raise ActionBlocked("Element changed since the page was observed; re-observing")
         await loc.click(timeout=TIMEOUT)
         try:
             await page.wait_for_load_state("domcontentloaded", timeout=10_000)

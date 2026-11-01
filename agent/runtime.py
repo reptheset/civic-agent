@@ -41,6 +41,10 @@ class BrowserManager:
         self._pw = await async_playwright().start()
         self._browser = await self._pw.chromium.launch(headless=headless, slow_mo=100)
 
+    @property
+    def browser(self):
+        return self._browser
+
     async def page_for(self, run_id: str):
         page = self.pages.get(run_id)
         if page is None or page.is_closed():

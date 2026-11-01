@@ -23,8 +23,7 @@ FIELD_KEYS = {
     "class12_percentage": "overall percentage, ONLY if printed on a Class 12 document",
     "board": "examination board",
     "year_of_passing": "year the exam was passed",
-    "institution": "school/college/institution of study",
-    "course": "course of study",
+    "school": "school or examination centre named on the document",
     "family_income": "annual family income in rupees, digits only",
 }
 TEXT_CHECKED_CONF = 0.95   # value found in the PDF's own text layer
