@@ -6,6 +6,15 @@ Theme 1 (Civic Pulse, Digital Governance & Public Information), Problem Statemen
 
 Civic Agent reads a citizen's real documents, checks eligibility against the **live official scheme page**, fills a legacy government-style portal with a browser agent (Playwright + Gemini), survives pop-ups, renamed fields, server errors, expired sessions, slow networks and prompt injection, and returns a **verified receipt**, an **evidence-pack PDF** and the **application status**.
 
+## Live demo
+
+| | Link |
+|---|---|
+| **App (UI)** | https://civic-agent-mu.vercel.app |
+| **Agent API** | https://civic-agent-0spb.onrender.com/docs |
+
+The API runs on Render's free tier: after a period without visitors, the first request can take about a minute while the server wakes up. To try it you need your own documents (e.g. DigiLocker marksheets as PDF). The OTP for the test portal appears in the app's *SMS inbox* panel; you type it yourself.
+
 ---
 
 ## What makes it different
@@ -20,10 +29,13 @@ Civic Agent reads a citizen's real documents, checks eligibility against the **l
 | 6 | **Crash-proof.** Every LangGraph step is checkpointed in SQLite. | Server killed during approval; run recovered and completed |
 | 7 | **Privacy by design.** While browsing, the model sees `[full_name]`, never the value (see the "What the AI saw" panel). | Redacted prompt visible in the UI |
 | 8 | **Evidence you can keep, in your language.** Evidence-pack PDF with sources, quotes, hashes and a reliability report; UI in English, Hindi and Odia. | Every receipt comes with a PDF |
+| 9 | **Any official scheme, read live.** Paste any official scheme page (`.gov.in` / `.nic.in`): *"What documents do I need?"* lists the required documents and eligibility is checked against that page, each item with an exact quote verified word for word. | NMMSS page: all 7 required documents found, each quote verified |
 
 ---
 
 ## Pipeline
+
+**Before starting (optional):** paste an official scheme page → *What documents do I need?* → the agent reads the page live and lists the required documents with verified quotes. The same URL is then used for the eligibility check.
 
 ```
  1 Read documents ──► 2 Confirm details ⏸ ──► 3 Check eligibility ──► 4 Proceed? ⏸ (add a missing value, re-check)
@@ -51,6 +63,7 @@ Civic Agent reads a citizen's real documents, checks eligibility against the **l
 - OTP, CAPTCHA and passwords are always entered by the citizen.
 - Review-page values cross-checked against the verified profile before approval.
 - Application ID and status accepted only if they appear on the portal's page.
+- Citizen-supplied scheme URLs: only `https` pages on official government domains (`.gov.in`, `.nic.in`) are fetched; anything else is rejected before any request is made.
 
 ## Measured results (`python -m scripts.benchmark`)
 
@@ -81,9 +94,10 @@ Civic Agent reads a citizen's real documents, checks eligibility against the **l
 | Eligibility | `agent/eligibility.py` (live fetch, quote check, evaluation) | Gemini, Playwright |
 | Evidence | `agent/evidence.py` | ReportLab |
 | Model access | `agent/llm.py` (timeouts, retries, rate limits) | google-genai |
-| API | `agent/server.py` (runs, events, resume, recover, track, explain) | FastAPI, WebSocket |
+| API | `agent/server.py` (runs, events, resume, recover, track, explain, scheme documents, SMS inbox, citizen OTP input, fault switches) | FastAPI, WebSocket |
 | Test portal | `testbed/` (legacy-style portal, 6 switchable faults, admin page) | FastAPI, Jinja2, SQLite |
 | UI | `web/src/app/page.tsx`, `i18n.ts` | Next.js, Tailwind |
+| Deployment | `Dockerfile`, `start.sh` (API + test portal + headless Chromium in one container) | Render (API), Vercel (UI) |
 
 Model: `gemini-3.5-flash-lite` (Google AI Studio).
 
@@ -108,17 +122,33 @@ cd web && npm run dev                           # 3. UI           -> http://loca
 python -m scripts.benchmark                     # 4. benchmark (optional, after one completed run)
 ```
 
-In the UI: choose a language, upload your marksheets, start the agent, confirm details, decide on eligibility, enter the OTP in the agent's browser window (shown on the portal's admin page), approve, then download the evidence pack and check the status. Faults can be switched on from `http://localhost:8001/admin`.
+In the UI: choose a language, optionally paste an official scheme page and click *What documents do I need?*, upload your documents, start the agent, confirm details, decide on eligibility, type the OTP from the *SMS inbox* panel, approve, then download the evidence pack and check the status. Failures can be switched on at any time from the *Test portal: inject failures* card (or `http://localhost:8001/admin`). Locally the agent's Chromium window is visible.
+
+## Deploy
+
+The UI and the backend are deployed separately; the code is the same as the local version, only settings differ.
+
+**Backend (Render, Docker):** New → Web Service → this repo → Language *Docker* (uses the `Dockerfile`; the test portal runs inside the same container, Chromium runs headless). Environment variables:
+
+| Variable | Value |
+|---|---|
+| `GEMINI_API_KEY` | your Google AI Studio key (secret) |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` |
+| `CORS_ORIGIN_REGEX` | `https://.*\.vercel\.app` |
+
+**UI (Vercel):** import this repo, Root Directory `web`, framework Next.js, environment variable `NEXT_PUBLIC_API` = the Render URL (no trailing slash).
+
+Without these variables everything defaults to local development (visible browser, `localhost`).
 
 ## Data and honesty
 
-- **Real data only.** Documents are the citizen's own DigiLocker marksheets. Eligibility rules are fetched live from the official myScheme page (`myscheme.gov.in/schemes/csss-cus`) on every run, saved with a timestamp and SHA-256.
+- **Real data only.** Documents are the citizen's own DigiLocker marksheets. Eligibility rules and required documents are fetched live on every run from the official myScheme page (`myscheme.gov.in/schemes/csss-cus` by default, or the official page the citizen pastes), saved with a timestamp and SHA-256.
 - **The portal is a test environment.** Applications go to the *CivicTest Scholarship Portal*, built by the team and clearly labelled as not a government website. Real portals require Aadhaar, OTP and CAPTCHA, and submitting test applications to them would be inappropriate. The agent contains no portal-specific code.
 - `.env`, `data/` (documents, receipts, profiles) and databases are git-ignored.
 
 ## Future work
 
-More schemes and services (a new scheme is a URL); DigiLocker integration; a hosted browser with a live view for the citizen; shared portal skills across citizens (labels and references only, never values); scheduled status tracking with consent.
+Filling real government portals for genuine applicants (same agent, the portal added to the allow-list); more services (licence renewal, subsidy claims); DigiLocker integration; a hosted browser with a live view for the citizen; shared portal skills across citizens (labels and references only, never values); scheduled status tracking with consent.
 
 ---
 
